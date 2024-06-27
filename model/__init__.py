@@ -90,9 +90,11 @@ class InputGrooveRhythmLayer(torch.nn.Module):
         :param hvo: shape (batch, 32, 3)
         :return:
         '''
-        hit = hvo[:, :, 0:1]
-        vel = hvo[:, :, 1:2]
-        offset = hvo[:, :, 2:3]
+
+        n_dim = hvo.shape[2] // 3
+        hit = hvo[:, :, :n_dim]
+        vel = hvo[:, :, n_dim:2*n_dim]
+        offset = hvo[:, :, 2*n_dim:]
         # hvo_ = torch.cat((hit, self.velocity_dropout(vel), self.offset_dropout(offset)), dim=2)
         hits_projection = self.HitsReLU(self.HitsLinear(hit))
         velocities_projection = self.VelocitiesReLU(self.VelocitiesLinear(self.velocity_dropout(vel)))

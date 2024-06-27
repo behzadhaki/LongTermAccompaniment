@@ -38,7 +38,7 @@ class GrooveRhythmEncoder(torch.nn.Module):
         # Layers
         # ---------------------------------------------------
         self.InputLayerEncoder = InputGrooveRhythmLayer(
-            embedding_size=self.config['groove_dim'],
+            embedding_size=self.config['n_src_voices']*3,
             d_model=self.config['d_model'],
             max_len=16,
             velocity_dropout=float(self.config['velocity_dropout']),
@@ -215,15 +215,15 @@ class PerformanceEncoder(torch.nn.Module):
                 self.train()
 
 
-class Groove2GrooveDecoder(torch.nn.Module):
+class DrumContinuator(torch.nn.Module):
 
         def __init__(self, config):
-            super(Groove2GrooveDecoder, self).__init__()
+            super(DrumContinuator, self).__init__()
 
-            self.config = config['Groove2GrooveDecoder'] if 'Groove2GrooveDecoder' in config else config
+            self.config = config['DrumContinuator'] if 'DrumContinuator' in config else config
 
             self.InputLayerEncoder = InputGrooveRhythmLayer(
-                embedding_size=3,
+                embedding_size=self.config['n_tgt_voices']*3,
                 d_model=self.config['d_model'],
                 max_len=32,
                 velocity_dropout=float(self.config['velocity_dropout']),
@@ -243,17 +243,17 @@ class Groove2GrooveDecoder(torch.nn.Module):
             )
 
             self.HitOutputLayer = SingleFeatureOutputLayer(
-                embedding_size=1,
+                embedding_size=self.config['n_tgt_voices'],
                 d_model=self.config['d_model'],
             )
 
             self.VelocityOutputLayer = SingleFeatureOutputLayer(
-                embedding_size=1,
+                embedding_size=self.config['n_tgt_voices'],
                 d_model=self.config['d_model'],
             )
 
             self.OffsetOutputLayer = SingleFeatureOutputLayer(
-                embedding_size=1,
+                embedding_size=self.config['n_tgt_voices'],
                 d_model=self.config['d_model'],
             )
 
@@ -325,7 +325,7 @@ class LongTermAccompaniment(torch.nn.Module):
         self.GrooveRhythmEncoder = GrooveRhythmEncoder(config)
 
         self.PerformanceEncoder = PerformanceEncoder(config)
-        self.Performance2GrooveDecoder = Groove2GrooveDecoder(config)
+        self.Performance2GrooveDecoder = DrumContinuator(config)
 
         # inference only utils
         self.encoded_bars = torch.zeros((1, self.max_n_bars, self.encoder_d_model))
@@ -338,7 +338,7 @@ class LongTermAccompaniment(torch.nn.Module):
     def forward(self, flat_hvo_groove: torch.Tensor, src_key_padding_and_memory_mask: torch.Tensor, shifted_target: torch.Tensor):
 
         # GrooveRhythmEncoder
-        n_bars = flat_hvo_groove.shape[1] // 16
+        n_bars = int(flat_hvo_groove.shape[1] // 16)
         encoded_bars = torch.zeros((flat_hvo_groove.shape[0], n_bars, self.encoder_d_model), device=flat_hvo_groove.device)
         for i in range(n_bars):
             encoded_bars[:, i, :] = self.GrooveRhythmEncoder.forward(
@@ -356,6 +356,7 @@ class LongTermAccompaniment(torch.nn.Module):
 
         return h_logits, v_logits, o_logits
 
+    @torch.jit.ignore
     def sample(self, flat_hvo_groove: torch.Tensor, src_key_padding_and_memory_mask: torch.Tensor, shifted_target: torch.Tensor):
         h_logits, v_logits, o_logits = self.forward(
             flat_hvo_groove=flat_hvo_groove,
@@ -468,8 +469,8 @@ class LongTermAccompaniment(torch.nn.Module):
 if __name__ == '__main__':
     max_bars = 32
     config = {
+
         'GrooveEncoder': {
-            'groove_dim': 3,
             'd_model': 512,
             'nhead': 8,
             'dim_feedforward': 2048,
@@ -478,7 +479,8 @@ if __name__ == '__main__':
             'n_bars': 1,  # number of bars in a performance
             'velocity_dropout': 0.1,
             'offset_dropout': 0.1,
-            'positional_encoding_dropout': 0.1
+            'positional_encoding_dropout': 0.1,
+            'n_src_voices': 1,
         },
         'PerformanceEncoder': {
             'd_model': 512,
@@ -486,10 +488,10 @@ if __name__ == '__main__':
             'dim_feedforward': 2048,
             'n_layers': 6,
             'dropout': 0.1,
-            'max_n_bars': max_bars,  # maximum number of bars in a performance
+            'max_n_bars': 32,  # maximum number of bars in a performance
             'positional_encoding_dropout': 0.1
         },
-        'Groove2GrooveDecoder': {
+        'DrumContinuator': {
             'd_model': 512,
             'nhead': 4,
             'dim_feedforward': 2048,
@@ -497,7 +499,8 @@ if __name__ == '__main__':
             'dropout': 0.1,
             'positional_encoding_dropout': 0.1,
             'velocity_dropout': 0.1,
-            'offset_dropout': 0.1
+            'offset_dropout': 0.1,
+            'n_tgt_voices': 1
         }
     }
 
@@ -521,8 +524,8 @@ if __name__ == '__main__':
     #
     # model.serialize(save_folder='./')
     #
-    # # Groove2GrooveDecoder
-    # model = Groove2GrooveDecoder(config)
+    # # DrumContinuator
+    # model = DrumContinuator(config)
     # print(model)
     #
     # h_logits, v_logits, o_logits = model(
@@ -538,7 +541,7 @@ if __name__ == '__main__':
     model = LongTermAccompaniment(config)
 
     # serialize
-    model.serialize(save_folder='./misc')
+    # model.serialize(save_folder='./misc')
 
     print(model)
     b_size = 1
@@ -551,7 +554,7 @@ if __name__ == '__main__':
             mask[i, n_bars[i]:] = 1
         return mask
 
-    mask = create_src_mask(torch.tensor([12]*b_size), max_bars)
+    mask = create_src_mask(torch.tensor([12]*b_size), config['PerformanceEncoder']['max_n_bars'])
 
     mask[0]
 
@@ -560,19 +563,20 @@ if __name__ == '__main__':
     model.eval()
     start = time()
 
-    # h_logits, v_log, o_log = model.forward(
-    #     flat_hvo_groove=torch.rand(b_size, 16*max_bars, 3),
-    #     src_key_padding_and_memory_mask=mask,
-    #     shifted_target=torch.rand(b_size, 32, 3)
-    # )
-    # encode new performed groove
-    model.encode_next_performed_groove_bar(torch.rand(1, 16, 3))
-    h, v, o, hvo = model.get_upcoming_2bars()           # to be used in plugin
-
-    h, v, o, hvo = model.sample(                        # use during testing
-        flat_hvo_groove=torch.rand(b_size, 16, 3),
+    h_logits, v_log, o_log = model.forward(
+        flat_hvo_groove=torch.rand(b_size, 16*config['PerformanceEncoder']['max_n_bars'], 3*config['GrooveEncoder']['n_src_voices']),
         src_key_padding_and_memory_mask=mask,
-        shifted_target=torch.rand(b_size, 32, 3)
+        shifted_target=torch.rand(b_size, 32, 3*config['DrumContinuator']['n_tgt_voices'])
+    )
+    # encode new performed groove
+    # model.encode_next_performed_groove_bar(torch.rand(1, 16, 3))
+    # h, v, o, hvo = model.get_upcoming_2bars()           # to be used in plugin
+
+    # sampling during training
+    h, v, o, hvo = model.sample(                        # use during testing
+        flat_hvo_groove=torch.rand(b_size, 16*config['PerformanceEncoder']['max_n_bars'], 3*config['GrooveEncoder']['n_src_voices']),
+        src_key_padding_and_memory_mask=mask,
+        shifted_target=torch.rand(b_size, 32, 3*config['DrumContinuator']['n_tgt_voices'])
     )
 
     print(time() - start)
