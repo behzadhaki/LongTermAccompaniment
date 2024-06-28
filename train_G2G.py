@@ -271,7 +271,7 @@ if __name__ == "__main__":
     def forward_using_batch_data(batch_data, model_=model_on_device, device=config.device):
         inputs_grooves, target_outputs, _, _, _ = batch_data_extractor(batch_data, device)
         h_logits, v_logits, o_logits, mu, log_var, latent_z = model_.forward(
-            flat_hvo_groove=inputs_grooves)
+            src=inputs_grooves)
         return h_logits, v_logits, o_logits, mu, log_var, latent_z, target_outputs
 
 

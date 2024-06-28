@@ -1421,7 +1421,7 @@ if __name__ == "__main__":
         cymbal_is_muted = training_dataset.cymbal_is_muted[start:end]
 
         model.forward(
-            flat_hvo_groove=inputs,
+            src=inputs,
             genre_tags=genre_tags,
             global_density_bins=global_density_bins,
             kick_is_muted=kick_is_muted,

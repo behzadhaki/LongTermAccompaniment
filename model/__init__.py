@@ -64,7 +64,7 @@ class InputGrooveRhythmLayer(torch.nn.Module):
 
     def __init__(self, embedding_size, d_model, max_len,
                  velocity_dropout, offset_dropout,
-                 positional_encoding_dropout):
+                 positional_encoding_dropout, has_velocity=True, has_offset=True):
         super(InputGrooveRhythmLayer, self).__init__()
         self.velocity_dropout = torch.nn.Dropout(p=velocity_dropout)
         self.offset_dropout = torch.nn.Dropout(p=offset_dropout)
@@ -75,6 +75,8 @@ class InputGrooveRhythmLayer(torch.nn.Module):
         self.VelocitiesReLU = torch.nn.ReLU()
         self.OffsetsReLU = torch.nn.ReLU()
         self.PositionalEncoding = PositionalEncoding(d_model, (max_len), positional_encoding_dropout)
+        self.has_velocity = has_velocity
+        self.has_offset = has_offset
 
     def init_weights(self, initrange=0.1):
         self.HitsLinear.bias.data.zero_()
@@ -91,16 +93,39 @@ class InputGrooveRhythmLayer(torch.nn.Module):
         :return:
         '''
 
-        n_dim = hvo.shape[2] // 3
-        hit = hvo[:, :, :n_dim]
-        vel = hvo[:, :, n_dim:2*n_dim]
-        offset = hvo[:, :, 2*n_dim:]
-        # hvo_ = torch.cat((hit, self.velocity_dropout(vel), self.offset_dropout(offset)), dim=2)
-        hits_projection = self.HitsReLU(self.HitsLinear(hit))
-        velocities_projection = self.VelocitiesReLU(self.VelocitiesLinear(self.velocity_dropout(vel)))
-        offsets_projection = self.OffsetsReLU(self.OffsetsLinear(self.offset_dropout(offset)))
-        hvo_projection = hits_projection + velocities_projection + offsets_projection
-        out = self.PositionalEncoding(hvo_projection)
+        if self.has_velocity and self.has_offset:
+            n_dim = hvo.shape[2] // 3
+            hit = hvo[:, :, :n_dim]
+            vel = hvo[:, :, n_dim:2*n_dim]
+            offset = hvo[:, :, 2*n_dim:]
+            # hvo_ = torch.cat((hit, self.velocity_dropout(vel), self.offset_dropout(offset)), dim=2)
+            hits_projection = self.HitsReLU(self.HitsLinear(hit))
+            velocities_projection = self.VelocitiesReLU(self.VelocitiesLinear(self.velocity_dropout(vel)))
+            offsets_projection = self.OffsetsReLU(self.OffsetsLinear(self.offset_dropout(offset)))
+            hvo_projection = hits_projection + velocities_projection + offsets_projection
+            out = self.PositionalEncoding(hvo_projection)
+        elif self.has_velocity:
+            n_dim = hvo.shape[2] // 2
+            hit = hvo[:, :, :n_dim]
+            vel = hvo[:, :, n_dim:]
+            hits_projection = self.HitsReLU(self.HitsLinear(hit))
+            velocities_projection = self.VelocitiesReLU(self.VelocitiesLinear(self.velocity_dropout(vel)))
+            hvo_projection = hits_projection + velocities_projection
+            out = self.PositionalEncoding(hvo_projection)
+        elif self.has_offset:
+            n_dim = hvo.shape[2] // 2
+            hit = hvo[:, :, :n_dim]
+            offset = hvo[:, :, n_dim:]
+            hits_projection = self.HitsReLU(self.HitsLinear(hit))
+            offsets_projection = self.OffsetsReLU(self.OffsetsLinear(self.offset_dropout(offset)))
+            hvo_projection = hits_projection + offsets_projection
+            out = self.PositionalEncoding(hvo_projection)
+        else:
+            hit = hvo
+            hits_projection = self.HitsReLU(self.HitsLinear(hit))
+            hvo_projection = hits_projection
+            out = self.PositionalEncoding(hvo_projection)
+
         return out, hit[:, :, 0], hvo_projection
 
 
