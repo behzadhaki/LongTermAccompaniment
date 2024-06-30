@@ -179,7 +179,6 @@ class PerformanceEncoder(torch.nn.Module):
 
             return perf_encodings
 
-
         @torch.jit.ignore
         def save(self, save_path, additional_info=None):
             """ Saves the model to the given path. The Saved pickle has all the parameters ('params' field) as well as
@@ -483,7 +482,7 @@ if __name__ == '__main__':
             'velocity_dropout': 0.1,
             'offset_dropout': 0.1,
             'positional_encoding_dropout': 0.1,
-            'n_src_voices': 10,
+            'n_src_voices': 1,
             'has_velocity': True,
             'has_offset': True
         },
@@ -493,7 +492,7 @@ if __name__ == '__main__':
             'dim_feedforward': 2048,
             'n_layers': 6,
             'dropout': 0.1,
-            'max_n_bars': 24,  # maximum number of bars in a performance
+            'max_n_bars': 32,  # maximum number of bars in a performance
             'positional_encoding_dropout': 0.1
         },
         'DrumContinuator': {
@@ -550,7 +549,84 @@ if __name__ == '__main__':
     # model.serialize(save_folder='./misc')
 
 
-    b_size = 1
+    # b_size = 1
+    # def create_src_mask(n_bars, max_n_bars):
+    #     # masked items are the ones noted as True
+    #
+    #     batch_size = n_bars.shape[0]
+    #     mask = torch.zeros((batch_size, max_n_bars)).bool()
+    #     for i in range(batch_size):
+    #         mask[i, n_bars[i]:] = 1
+    #     return mask
+    #
+    # mask = create_src_mask(torch.tensor([12]*b_size), config['PerformanceEncoder']['max_n_bars'])
+    #
+    # mask[0]
+    #
+    # # time inference
+    # from time import time
+    # model.eval()
+    # start = time()
+    #
+    # if config['GrooveEncoder']['has_velocity'] and config['GrooveEncoder']['has_offset']:
+    #     n_features = 3
+    # elif config['GrooveEncoder']['has_velocity']:
+    #     n_features = 2
+    # elif config['GrooveEncoder']['has_offset']:
+    #     n_features = 2
+    # else:
+    #     n_features = 1
+    #
+    # with torch.no_grad():
+    #     start = time()
+    #
+    #     h_logits, v_log, o_log = model.forward(
+    #         src=torch.rand(b_size, 16 * config['PerformanceEncoder']['max_n_bars'], n_features * config['GrooveEncoder']['n_src_voices']),
+    #         src_key_padding_and_memory_mask=mask,
+    #         tgt=torch.rand(b_size, config['DrumContinuator']['max_steps'],
+    #                        3 * config['DrumContinuator']['n_tgt_voices']))
+    #     print("Time taken for inference: LTA.forward()", time() - start)
+    #
+    #
+    # with torch.no_grad():
+    #     start1 = time()
+    #
+    #     # encode new performed groove
+    #     model.encode_next_performed_groove_bar(torch.rand(1, 16, config['GrooveEncoder']['n_src_voices']*n_features))
+    #     h, v, o, hvo = model.get_upcoming_2bars()           # to be used in plugin
+    #     print("Time taken for inference: LTA.encode_next_performed_groove_bar()", time() - start1)
+    #
+    #     start2 = time()
+    #     # sampling during training
+    #     h, v, o, hvo = model.sample(                        # use during testing
+    #         src=torch.rand(b_size, 16 * config['PerformanceEncoder']['max_n_bars'], n_features * config['GrooveEncoder']['n_src_voices']),
+    #         src_key_padding_and_memory_mask=mask,
+    #         tgt=torch.rand(b_size, config['DrumContinuator']['max_steps'], 3 * config['DrumContinuator']['n_tgt_voices'])
+    #     )
+    #
+    #     print("Time taken for inference: LTA.sample()", time() - start2)
+    #
+    #     print("Both inference took: ", time() - start1)
+
+    #
+    # =================================================================================================
+    # Load Mega dataset as torch.utils.data.Dataset
+    from data import PairedLTADataset
+
+    # load dataset as torch.utils.data.Dataset
+    training_dataset = PairedLTADataset(
+        input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_test.bz2",
+        output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
+        shift_tgt_by_n_steps=1,
+        input_bars=config['PerformanceEncoder']['max_n_bars'],
+        hop_n_bars=2,
+        input_has_velocity=True,
+        input_has_offsets=True
+    )
+
+    # access a batch
+    previous_input_bars, upcoming_input_2_bars, previous_stacked_input_output_bars, upcoming_stacked_input_output_2_bars, previous_output_bars, upcoming_output_2_bars, shifted_upcoming_output_2_bars = training_dataset[2:3]
+
     def create_src_mask(n_bars, max_n_bars):
         # masked items are the ones noted as True
 
@@ -560,51 +636,16 @@ if __name__ == '__main__':
             mask[i, n_bars[i]:] = 1
         return mask
 
-    mask = create_src_mask(torch.tensor([12]*b_size), config['PerformanceEncoder']['max_n_bars'])
+    mask = create_src_mask(torch.tensor([12]*1), config['PerformanceEncoder']['max_n_bars'])
 
-    mask[0]
+    h_logits, v_log, o_log = model.forward(
+        src=previous_input_bars,
+        src_key_padding_and_memory_mask=mask,
+        tgt=shifted_upcoming_output_2_bars)
 
-    # time inference
-    from time import time
-    model.eval()
-    start = time()
-
-    if config['GrooveEncoder']['has_velocity'] and config['GrooveEncoder']['has_offset']:
-        n_features = 3
-    elif config['GrooveEncoder']['has_velocity']:
-        n_features = 2
-    elif config['GrooveEncoder']['has_offset']:
-        n_features = 2
-    else:
-        n_features = 1
-
-    with torch.no_grad():
-        start = time()
-
-        h_logits, v_log, o_log = model.forward(
-            src=torch.rand(b_size, 16 * config['PerformanceEncoder']['max_n_bars'], n_features * config['GrooveEncoder']['n_src_voices']),
-            src_key_padding_and_memory_mask=mask,
-            tgt=torch.rand(b_size, config['DrumContinuator']['max_steps'],
-                           3 * config['DrumContinuator']['n_tgt_voices']))
-        print("Time taken for inference: LTA.forward()", time() - start)
-
-
-    with torch.no_grad():
-        start1 = time()
-
-        # encode new performed groove
-        model.encode_next_performed_groove_bar(torch.rand(1, 16, config['GrooveEncoder']['n_src_voices']*n_features))
-        h, v, o, hvo = model.get_upcoming_2bars()           # to be used in plugin
-        print("Time taken for inference: LTA.encode_next_performed_groove_bar()", time() - start1)
-
-        start2 = time()
-        # sampling during training
-        h, v, o, hvo = model.sample(                        # use during testing
-            src=torch.rand(b_size, 16 * config['PerformanceEncoder']['max_n_bars'], n_features * config['GrooveEncoder']['n_src_voices']),
-            src_key_padding_and_memory_mask=mask,
-            tgt=torch.rand(b_size, config['DrumContinuator']['max_steps'], 3 * config['DrumContinuator']['n_tgt_voices'])
-        )
-
-        print("Time taken for inference: LTA.sample()", time() - start2)
-
-        print("Both inference took: ", time() - start1)
+    #     h_logits, v_log, o_log = model.forward(
+    #         src=torch.rand(b_size, 16 * config['PerformanceEncoder']['max_n_bars'], n_features * config['GrooveEncoder']['n_src_voices']),
+    #         src_key_padding_and_memory_mask=mask,
+    #         tgt=torch.rand(b_size, config['DrumContinuator']['max_steps'],
+    #                        3 * config['DrumContinuator']['n_tgt_voices']))
+    #     print("Time taken for inference: LTA.forward()", time() - start)

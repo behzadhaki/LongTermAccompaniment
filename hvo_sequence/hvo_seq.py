@@ -254,6 +254,10 @@ class HVO_Sequence(object):
             type(metadata_instance))
         self.__metadata = metadata_instance
 
+    def force_tempo(self, qpm):
+        """Force the tempo of the HVO_Sequence to a given qpm"""
+        self.__grid_maker.force_tempo(qpm)
+
     @property
     def time_signatures(self):
         """ Adds a Time_Signature at a given time step index (not in seconds) to the grid_maker"""
@@ -392,6 +396,29 @@ class HVO_Sequence(object):
                     segment.metadata.append(m[1], start_at_time_step=m[0])
 
         return segments, segments_info["segment_starts"]
+
+    @property
+    def consistent_time_signature_segments(self):
+        """
+        Returns a list of hvo sequences, where each sequence is a time_sig consistent segment of the original hvo sequence.
+        """
+        segs, starts = self.consistent_segment_hvo_sequences
+
+        new_segs = []
+        new_starts = []
+
+        for i, seg in enumerate(segs):
+            if i == 0:
+                new_segs.append(seg)
+                new_starts.append(starts[i])
+            else:
+                if seg.time_signatures[0] != segs[i-1].time_signatures[0]:
+                    new_segs.append(seg)
+                    new_starts.append(starts[i])
+                else:
+                    new_segs[-1] += seg
+
+        return new_segs, new_starts
 
     #   --------------------------------------------------------------
     #   Utilities to modify hvo sequence
@@ -1079,6 +1106,25 @@ class HVO_Sequence(object):
         new.__dict__ = copy.deepcopy(self.__dict__)
         if new.hvo is not None:
             new.hvo = np.zeros_like(new.__hvo)
+        return new
+
+    def copy_with_fixed_tempo(self, tempo):
+        new = HVO_Sequence(drum_mapping=self.drum_mapping, beat_division_factors=self.__grid_maker.beat_division_factors)
+        new.add_tempo(0, tempo)
+
+        # set len
+        time_sigs = self.time_signatures
+        for ix, ts in enumerate(time_sigs):
+            if ix == 0:
+                new.add_time_signature(ts.time_step, ts.numerator, ts.denominator)
+            else:
+                if ts.numerator != time_sigs[ix - 1].numerator or ts.denominator != time_sigs[ix - 1].denominator:
+                    new.add_time_signature(ts.time_step, ts.numerator, ts.denominator)
+
+        new.adjust_length(self.number_of_steps)
+        new.hvo = copy.deepcopy(self.hvo)
+        new.metadata = copy.deepcopy(self.metadata)
+
         return new
 
     #   --------------------------------------------------------------
