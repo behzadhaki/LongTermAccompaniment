@@ -155,6 +155,7 @@ class PerformanceEncoder(torch.nn.Module):
 
         def create_src_mask(self, n_bars):
             # masked items are the ones noted as True
+            # https://iori-yamahata.net/2024/02/28/programming-1-eng/
 
             batch_size = n_bars.shape[0]
             mask = torch.zeros((batch_size, self.max_n_bars)).bool()
@@ -265,6 +266,9 @@ class DrumContinuator(torch.nn.Module):
             x, hit, hvo_projection = self.InputLayerEncoder(hvo=tgt)
 
             # replace True to -inf, False to 0
+
+            if self.causal_mask.device != x.device:
+                self.causal_mask = self.causal_mask.to(x.device)
 
             output = self.Decoder(
                 tgt=hvo_projection,
@@ -470,44 +474,45 @@ class LongTermAccompaniment(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    max_bars = 32
     config = {
         'GrooveEncoder': {
             'd_model': 512,
-            'nhead': 8,
             'dim_feedforward': 2048,
             'n_layers': 6,
-            'dropout': 0.1,
+            'nhead': 8,
+            'n_src_voices': 1,
             'n_bars': 1,  # number of bars in a performance
+            'has_velocity': True,
+            'has_offset': True,
+            'dropout': 0.1,
             'velocity_dropout': 0.1,
             'offset_dropout': 0.1,
             'positional_encoding_dropout': 0.1,
-            'n_src_voices': 1,
-            'has_velocity': True,
-            'has_offset': True
+
         },
         'PerformanceEncoder': {
             'd_model': 512,
-            'nhead': 8,
             'dim_feedforward': 2048,
             'n_layers': 6,
-            'dropout': 0.1,
+            'nhead': 8,
             'max_n_bars': 32,  # maximum number of bars in a performance
+            'dropout': 0.1,
             'positional_encoding_dropout': 0.1
         },
         'DrumContinuator': {
             'd_model': 512,
-            'nhead': 4,
             'dim_feedforward': 2048,
             'n_layers': 8,
+            'nhead': 4,
+            'n_tgt_voices': 9,
+            'max_steps': 32 * 1,
             'dropout': 0.1,
-            'positional_encoding_dropout': 0.1,
             'velocity_dropout': 0.1,
             'offset_dropout': 0.1,
-            'n_tgt_voices': 9,
-            'max_steps': 32*1
+            'positional_encoding_dropout': 0.1,
         }
     }
+    max_bars = 32
 
     # GrooveRhythmEncoder
     # model = GrooveRhythmEncoder(config)

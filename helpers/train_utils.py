@@ -190,7 +190,7 @@ def calculate_kld_loss(mu, log_var):
 
 
 def batch_loop(dataloader_, forward_method, hit_loss_fn, velocity_loss_fn,  offset_loss_fn,
-               optimizer=None, starting_step=None, kl_beta=1.0, scale_h_loss=1.0, scale_v_loss=1.0, scale_o_loss=1.0):
+               optimizer=None, starting_step=None, scale_h_loss=1.0, scale_v_loss=1.0, scale_o_loss=1.0):
 
     """
     This function iteratively loops over the given dataloader and calculates the loss for each batch. If an optimizer is
@@ -225,7 +225,7 @@ def batch_loop(dataloader_, forward_method, hit_loss_fn, velocity_loss_fn,  offs
 
     # Prepare the metric trackers for the new epoch
     # ------------------------------------------------------------------------------------------
-    loss_total, loss_recon, loss_h, loss_v, loss_o, loss_KL, loss_KL_beta_scaled = [], [], [], [], [], [], []
+    loss_recon, loss_h, loss_v, loss_o = [], [], [], []
 
     # Iterate over batches
     # ------------------------------------------------------------------------------------------
@@ -235,16 +235,9 @@ def batch_loop(dataloader_, forward_method, hit_loss_fn, velocity_loss_fn,  offs
         if optimizer is None:
             with torch.no_grad():
                 # Set the model to evaluation mode
-                if kl_beta is not None:
-                    h_logits, v_logits, o_logits, mu, log_var, latent_z, target_outputs = forward_method(batch_data)
-                else:
-                    h_logits, v_logits, o_logits, hvo_logits, target_outputs = forward_method(batch_data)
+                h_logits, v_logits, o_logits, target_outputs = forward_method(batch_data)
         else:
-            if kl_beta is not None:
-                # Set the model to training mode
-                h_logits, v_logits, o_logits, mu, log_var, latent_z, target_outputs = forward_method(batch_data)
-            else:
-                h_logits, v_logits, o_logits, hvo_logits, target_outputs = forward_method(batch_data)
+            h_logits, v_logits, o_logits, target_outputs = forward_method(batch_data)
 
         # Prepare targets for loss calculation
         h_targets, v_targets, o_targets = torch.split(target_outputs, int(target_outputs.shape[2] / 3), 2)
@@ -261,48 +254,28 @@ def batch_loop(dataloader_, forward_method, hit_loss_fn, velocity_loss_fn,  offs
         batch_loss_o = calculate_offset_loss(
             offset_logits=o_logits, offset_targets=o_targets, offset_loss_function=offset_loss_fn, hit_mask=hit_mask) * scale_o_loss
 
-        if kl_beta is not None:
-            batch_loss_KL = calculate_kld_loss(mu, log_var)
-
-            batch_loss_KL_Beta_Scaled = batch_loss_KL * kl_beta
-        else:
-            batch_loss_KL = torch.tensor(0.0)
-            batch_loss_KL_Beta_Scaled = torch.tensor(0.0)
 
         # Backpropagation and optimization step (if training)
         # ---------------------------------------------------------------------------------------
         if optimizer is not None:
             optimizer.zero_grad()
-            (batch_loss_h + batch_loss_KL_Beta_Scaled).backward(retain_graph=True)
+            batch_loss_h.backward(retain_graph=True)
             batch_loss_v.backward(retain_graph=True)
             batch_loss_o.backward(retain_graph=True)
             optimizer.step()
-
 
         # Update the per batch loss trackers
         # -----------------------------------------------------------------
         loss_h.append(batch_loss_h.item())
         loss_v.append(batch_loss_v.item())
         loss_o.append(batch_loss_o.item())
-        loss_KL.append(batch_loss_KL.item())
-        loss_KL_beta_scaled.append(batch_loss_KL_Beta_Scaled.item())
+
         loss_recon.append(loss_h[-1] + loss_v[-1] + loss_o[-1])
-        loss_total.append(loss_recon[-1] + loss_KL_beta_scaled[-1])
 
         # Update the progress bar
         # ---------------------------------------------------------------------------------------
-        if kl_beta is not None:
-            pbar.set_postfix(
-                {"l_total_recon_kl": f"{np.mean(loss_total):.4f}",
-                    "l_recon": f"{np.mean(loss_recon):.4f}",
-                    "l_h": f"{np.mean(loss_h):.4f}",
-                    "l_v": f"{np.mean(loss_v):.4f}",
-                    "l_o": f"{np.mean(loss_o):.4f}",
-                    "l_KL": f"{np.mean(loss_KL):.4f}",
-                    })
-        else:
-            pbar.set_postfix(
-                {"l_total_recon": f"{np.mean(loss_total):.4f}",
+        pbar.set_postfix(
+                {
                     "l_recon": f"{np.mean(loss_recon):.4f}",
                     "l_h": f"{np.mean(loss_h):.4f}",
                     "l_v": f"{np.mean(loss_v):.4f}",
@@ -314,23 +287,11 @@ def batch_loop(dataloader_, forward_method, hit_loss_fn, velocity_loss_fn,  offs
         if starting_step is not None:
             starting_step += 1
 
-    if kl_beta is not None:
-        metrics = {
-            "loss_total_rec_w_kl": np.mean(loss_total),
-            "loss_h": np.mean(loss_h),
-            "loss_v": np.mean(loss_v),
-            "loss_o": np.mean(loss_o),
-            "loss_KL": np.mean(loss_KL),
-            "loss_KL_beta_scaled": np.mean(loss_KL_beta_scaled),
-            "loss_recon": np.mean(loss_recon)
-        }
-    else:
-        metrics = {
-            "loss_total_rec": np.mean(loss_total),
-            "loss_h": np.mean(loss_h),
-            "loss_v": np.mean(loss_v),
-            "loss_o": np.mean(loss_o),
-            "loss_recon": np.mean(loss_recon)
+    metrics = {
+        "loss_h": np.mean(loss_h),
+        "loss_v": np.mean(loss_v),
+        "loss_o": np.mean(loss_o),
+        "loss_recon": np.mean(loss_recon)
         }
 
     if starting_step is not None:
@@ -341,7 +302,7 @@ def batch_loop(dataloader_, forward_method, hit_loss_fn, velocity_loss_fn,  offs
 
 def train_loop(train_dataloader, forward_method,
                optimizer, hit_loss_fn, velocity_loss_fn, offset_loss_fn,
-               starting_step, kl_beta, scale_h_loss, scale_v_loss, scale_o_loss):
+               starting_step, scale_h_loss, scale_v_loss, scale_o_loss):
     """
     This function performs the training loop for the given model and dataloader. It will iterate over the dataloader
     and perform the forward and backward pass for each batch. The loss values are accumulated and the average is
@@ -376,7 +337,6 @@ def train_loop(train_dataloader, forward_method,
         offset_loss_fn=offset_loss_fn,
         optimizer=optimizer,
         starting_step=starting_step,
-        kl_beta=kl_beta,
         scale_h_loss=scale_h_loss,
         scale_v_loss=scale_v_loss,
         scale_o_loss=scale_o_loss)
@@ -387,7 +347,7 @@ def train_loop(train_dataloader, forward_method,
 
 def test_loop(test_dataloader, forward_method,
               hit_loss_fn, velocity_loss_fn, offset_loss_fn,
-              kl_beta, scale_h_loss, scale_v_loss, scale_o_loss):
+              scale_h_loss, scale_v_loss, scale_o_loss):
     """
     This function performs the test loop for the given model and dataloader. It will iterate over the dataloader
     and perform the forward pass for each batch. The loss values are accumulated and the average is returned at the end
@@ -421,7 +381,6 @@ def test_loop(test_dataloader, forward_method,
             velocity_loss_fn=velocity_loss_fn,
             offset_loss_fn=offset_loss_fn,
             optimizer=None,
-            kl_beta=kl_beta,
             scale_h_loss=scale_h_loss,
             scale_v_loss=scale_v_loss,
             scale_o_loss=scale_o_loss)

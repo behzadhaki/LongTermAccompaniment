@@ -486,7 +486,8 @@ def upsample_to_ensure_genre_balance(dataset_setting_json_path, subset_tag, cach
         return set_data_
 
 
-def extract_data(song_ids, instrument1s, instrument2s, input_bars, hop_n_bars, input_has_velocity, input_has_offset):
+def extract_data(song_ids, instrument1s, instrument2s, input_bars, hop_n_bars, input_has_velocity, input_has_offset, down_sampled_ratio=None, create_subsequences=False,
+                 subsequence_hop_bars=1):
     '''
     Splits the paired Lakh data into input and output segments for the LTA model 
     :param song_ids:        List of song ids to extract data from
@@ -537,14 +538,19 @@ def extract_data(song_ids, instrument1s, instrument2s, input_bars, hop_n_bars, i
             i1_hvos.append(seg1)
             i2_hvos.append(seg2)
 
-    previous_input_bars = []
-    upcoming_input_2_bars = []
-    previous_stacked_input_output_bars = []
-    upcoming_stacked_input_output_2_bars = []
-    previous_output_bars = []
-    upcoming_output_2_bars = []
+    previous_input_bars__ = []
+    upcoming_input_2_bars__ = []
+    previous_stacked_input_output_bars__ = []
+    upcoming_stacked_input_output_2_bars__ = []
+    previous_output_bars__ = []
+    upcoming_output_2_bars__ = []
 
     for i1_hvo, i2_hvo in tqdm(zip(i1_hvos, i2_hvos)):
+
+        if down_sampled_ratio is not None:
+            if random.random() > down_sampled_ratio:
+                continue
+
         assert i1_hvo.shape[0] == i2_hvo.shape[0]
 
         n_steps = i1_hvo.shape[0]
@@ -570,12 +576,12 @@ def extract_data(song_ids, instrument1s, instrument2s, input_bars, hop_n_bars, i
         hvo2 = torch.tensor(np.hstack([h2, v2, o2]), dtype=torch.float32)
 
         # add inputs 
-        previous_input_bars.append(hvo1[:-32])
-        upcoming_input_2_bars.append(hvo1[-32:])
+        previous_input_bars__.append(hvo1[:-32])
+        upcoming_input_2_bars__.append(hvo1[-32:])
 
         # add outputs        
-        previous_output_bars.append(hvo2[:-32])
-        upcoming_output_2_bars.append(hvo2[-32:])
+        previous_output_bars__.append(hvo2[:-32])
+        upcoming_output_2_bars__.append(hvo2[-32:])
 
         # add stacked inputs and outputs
         if input_has_velocity and input_has_offset:
@@ -587,740 +593,43 @@ def extract_data(song_ids, instrument1s, instrument2s, input_bars, hop_n_bars, i
         else:
             i12 = torch.tensor(np.hstack([h1, h2]), dtype=torch.float32)
 
-        previous_stacked_input_output_bars.append(i12[:-32])
-        upcoming_stacked_input_output_2_bars.append(i12[-32:])
+        previous_stacked_input_output_bars__.append(i12[:-32])
+        upcoming_stacked_input_output_2_bars__.append(i12[-32:])
+
+    previous_input_bars_ = []
+    upcoming_input_2_bars_ = []
+    previous_stacked_input_output_bars_ = []
+    upcoming_stacked_input_output_2_bars_ = []
+    previous_output_bars_ = []
+    upcoming_output_2_bars_ = []
+    src_key_padding_masks_ = []
+    n_input_bars_ = []
+
+    full_mask = torch.zeros(input_bars, dtype=torch.bool)
+
+    hop_beginnings = [i for i in range(0, len(previous_input_bars__) - 2, subsequence_hop_bars)][1:]
+
+    for i in range(len(previous_input_bars__)):
+        # first add full version
+        previous_input_bars_.append(previous_input_bars__[i])
+        upcoming_input_2_bars_.append(upcoming_input_2_bars__[i])
+        previous_stacked_input_output_bars_.append(previous_stacked_input_output_bars__[i])
+        upcoming_stacked_input_output_2_bars_.append(upcoming_stacked_input_output_2_bars__[i])
+        previous_output_bars_.append(previous_output_bars__[i])
+        upcoming_output_2_bars_.append(upcoming_output_2_bars__[i])
+        src_key_padding_masks_.append(full_mask)
+        n_input_bars_.append(input_bars)
 
     # convert to torch tensors
-    previous_input_bars = torch.vstack([x.unsqueeze(0) for x in previous_input_bars])
-    upcoming_input_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_input_2_bars])
-    previous_stacked_input_output_bars = torch.vstack([x.unsqueeze(0) for x in previous_stacked_input_output_bars])
-    upcoming_stacked_input_output_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_stacked_input_output_2_bars])
-    previous_output_bars = torch.vstack([x.unsqueeze(0) for x in previous_output_bars])
-    upcoming_output_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_output_2_bars])
+    previous_input_bars = torch.vstack([x.unsqueeze(0) for x in previous_input_bars_])
+    upcoming_input_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_input_2_bars_])
+    previous_stacked_input_output_bars = torch.vstack([x.unsqueeze(0) for x in previous_stacked_input_output_bars_])
+    upcoming_stacked_input_output_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_stacked_input_output_2_bars_])
+    previous_output_bars = torch.vstack([x.unsqueeze(0) for x in previous_output_bars_])
+    upcoming_output_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_output_2_bars_])
 
     return previous_input_bars, upcoming_input_2_bars, previous_stacked_input_output_bars, upcoming_stacked_input_output_2_bars, previous_output_bars, upcoming_output_2_bars
 
-
-# class Groove2Drum2BarDataset(Dataset):
-#     def __init__(self, dataset_setting_json_path, subset_tag, max_len, tapped_voice_idx=2,
-#                  collapse_tapped_sequence=False,
-#                  down_sampled_ratio=None, move_all_to_gpu=False,
-#                  augment_dataset=False,
-#                  use_cached=True,
-#                  num_voice_density_bins=None,
-#                  num_tempo_bins=None,
-#                  num_global_density_bins=None,
-#                  force_regenerate=False):
-#
-#         """
-#         :param dataset_setting_json_path:   path to the json file containing the dataset settings (see data/dataset_json_settings/4_4_Beats_gmd.json)
-#         :param subset_tag:                [str] whether to load the train/test/validation set
-#         :param max_len:              [int] maximum length of the sequences to be loaded
-#         :param tapped_voice_idx:    [int] index of the voice to be tapped (default is 2 which is usually closed hat)
-#         :param collapse_tapped_sequence:  [bool] returns a Tx3 tensor instead of a Tx(3xNumVoices) tensor
-#         :param sort_by_metadata_key: [str] sorts the data by the metadata key provided (e.g. "tempo")
-#         :param down_sampled_ratio: [float] down samples the data by the ratio provided (e.g. 0.5)
-#         :param move_all_to_gpu: [bool] moves all the data to the gpu
-#         :param augment_dataset: [bool] if True, will augment the dataset by appending the bar-swapped version of each sequence
-#         :param use_cached: [bool] if True, will load the cached version of the dataset if available
-#         :param num_voice_density_bins: [int] number of bins to use for voice density (if None, will be set to 3)
-#         :param num_tempo_bins: [int] number of bins to use for tempo (if None, will be set to 6)
-#         :param num_global_density_bins: [int] number of bins to use for global density (if None, will be set to 8)
-#         :param force_regenerate: [bool] if True, will regenerate the cached version of the dataset
-#         """
-#         self.dataset_setting_json_path = dataset_setting_json_path
-#
-#         if num_voice_density_bins is None:
-#             num_voice_density_bins = 3
-#
-#         if num_tempo_bins is None:
-#             num_tempo_bins = 6
-#
-#         if num_global_density_bins is None:
-#             num_global_density_bins = 8
-#
-#         if down_sampled_ratio == 1:
-#             down_sampled_ratio = None
-#
-#         def get_cached_filepath():
-#             dir_ = "cached/TorchDatasets"
-#             filename = (f"{dataset_setting_json_path.split('/')[-1]}_{subset_tag}_{max_len}_{tapped_voice_idx}"
-#                         f"_{collapse_tapped_sequence}_{down_sampled_ratio}_{augment_dataset}_{num_voice_density_bins}_{num_tempo_bins}_{num_global_density_bins}.bz2pickle")
-#             if not os.path.exists(dir_):
-#                 os.makedirs(dir_)
-#             return os.path.join(dir_, filename)
-#
-#         # check if cached version exists
-#         # ------------------------------------------------------------------------------------------
-#         if use_cached and not force_regenerate:
-#             if os.path.exists(get_cached_filepath()):
-#                 dataLoaderLogger.info(f"Groove2Drum2BarDataset Constructor --> Loading Cached Version from: {get_cached_filepath()}")
-#                 ifile = bz2.BZ2File(get_cached_filepath(), 'rb')
-#                 data = pickle.load(ifile)
-#                 ifile.close()
-#                 self.input_grooves = torch.tensor(data["input_grooves"], dtype=torch.float32)
-#                 self.output_grooves = torch.tensor(data["output_grooves"], dtype=torch.float32)
-#                 self.genre_encodings = torch.tensor(data["genre_encodings"], dtype=torch.float32)
-#                 self.genre_mapping = data["genre_mapping"]
-#                 self.genre_targets = torch.tensor(data["genre_targets"], dtype=torch.long)
-#                 self.min_complexity = data["min_complexity"]
-#                 self.max_complexity = data["max_complexity"]
-#                 self.complexities = torch.tensor(data["complexities"], dtype=torch.float32)
-#                 self.tempos = torch.tensor(data["tempos"], dtype=torch.long)
-#                 self.num_tempo_bins = data["num_tempo_bins"]
-#                 self.tempo_bins = torch.tensor(data["tempo_bins"], dtype=torch.long)
-#                 self.hvo_sequences = data["hvo_sequences"]
-#                 self.genre_tags = sorted(list(self.genre_mapping.keys()))
-#                 self.num_genres = len(self.genre_tags) + 1
-#                 self.kick_counts = data["kick_counts"]
-#                 self.kick_density_bins = torch.tensor(data["kick_density_bins"], dtype=torch.long)
-#                 self.kick_is_muted = torch.tensor(data["kick_is_muted"], dtype=torch.long)
-#                 self.snare_counts = data["snare_counts"]
-#                 self.snare_density_bins = torch.tensor(data["snare_density_bins"], dtype=torch.long)
-#                 self.snare_is_muted = torch.tensor(data["snare_is_muted"], dtype=torch.long)
-#                 self.hat_counts = data["hat_counts"]
-#                 self.hat_density_bins = torch.tensor(data["hat_density_bins"], dtype=torch.long)
-#                 self.hat_is_muted = torch.tensor(data["hat_is_muted"], dtype=torch.long)
-#                 self.tom_counts = data["tom_counts"]
-#                 self.tom_density_bins = torch.tensor(data["tom_density_bins"], dtype=torch.long)
-#                 self.tom_is_muted = torch.tensor(data["tom_is_muted"], dtype=torch.long)
-#                 self.cymbal_counts = data["cymbal_counts"]
-#                 self.cymbal_density_bins = torch.tensor(data["cymbal_density_bins"], dtype=torch.long)
-#                 self.cymbal_is_muted = torch.tensor(data["cymbal_is_muted"], dtype=torch.long)
-#                 self.kick_lowBound_full_trnSet = data["kick_lowBound_full_trnSet"]
-#                 self.kick_highBound_full_trnSet = data["kick_highBound_full_trnSet"]
-#                 self.snare_lowBound_full_trnSet = data["snare_lowBound_full_trnSet"]
-#                 self.snare_highBound_full_trnSet = data["snare_highBound_full_trnSet"]
-#                 self.hat_lowBound_full_trnSet = data["hat_lowBound_full_trnSet"]
-#                 self.hat_highBound_full_trnSet = data["hat_highBound_full_trnSet"]
-#                 self.tom_lowBound_full_trnSet = data["tom_lowBound_full_trnSet"]
-#                 self.tom_highBound_full_trnSet = data["tom_highBound_full_trnSet"]
-#                 self.cymbal_lowBound_full_trnSet = data["cymbal_lowBound_full_trnSet"]
-#                 self.cymbal_highBound_full_trnSet = data["cymbal_highBound_full_trnSet"]
-#                 self.global_density_bins = torch.tensor(data["global_density_bins"], dtype=torch.long)
-#                 process_data = False
-#             else:
-#                 dataLoaderLogger.info(f"No Cached Version Available Here: {get_cached_filepath()}. ")
-#                 process_data = True
-#         else:
-#             process_data = True
-#
-#         if process_data:
-#             # Get processed inputs, outputs and hvo sequences
-#             self.input_grooves = list()
-#             self.output_grooves = list()
-#             self.complexities = list()
-#             self.genre_encodings = list()
-#             self.genre_targets = list()
-#             self.hvo_sequences = list()
-#             self.tempos = list()
-#             self.tempo_bins = list()
-#
-#             self.kick_counts = list()               # voice 0
-#             self.snare_counts = list()              # voice 1
-#             self.hat_counts = list()                # voices 2, 3
-#             self.tom_counts = list()                # voices 4, 5, 6
-#             self.cymbal_counts = list()             # voices 7, 8
-#             self.hit_counts = list()                # all voices
-#             self.kick_is_muted = list()             # voice 0
-#             self.snare_is_muted = list()            # voice 1
-#             self.hat_is_muted = list()              # voices 2, 3
-#             self.tom_is_muted = list()              # voices 4, 5, 6
-#             self.cymbal_is_muted = list()           # voices 7, 8
-#
-#             # up sample to ensure genre balance
-#             # ------------------------------------------------------------------------------------------
-#             # load pre-stored hvo_sequences or
-#             #   a portion of them uniformly sampled if down_sampled_ratio is provided
-#             # ------------------------------------------------------------------------------------------
-#             if down_sampled_ratio is None:
-#                 subset = load_bz2_hvo_sequences(dataset_setting_json_path, subset_tag, force_regenerate=False)
-#             else:
-#                 subset = load_downsampled_mega_set_hvo_sequences(
-#                     dataset_setting_json_path=dataset_setting_json_path,
-#                     subset_tag=subset_tag,
-#                     force_regenerate=force_regenerate,
-#                     down_sampled_ratio=down_sampled_ratio,
-#                     cache_down_sampled_set=True
-#                 )
-#
-#
-#             # collect genre map using the full TRAINING set only!!!
-#             # ------------------------------------------------------------------------------------------
-#             train_set_info = collect_train_set_info(dataset_setting_json_path,
-#                                                     num_voice_density_bins=num_voice_density_bins,
-#                                                     num_global_density_bins=num_global_density_bins,
-#                                                     max_len=max_len)
-#             self.kick_lowBound_full_trnSet, self.kick_highBound_full_trnSet = train_set_info[0]
-#             self.snare_lowBound_full_trnSet, self.snare_highBound_full_trnSet = train_set_info[1]
-#             self.hat_lowBound_full_trnSet, self.hat_highBound_full_trnSet = train_set_info[2]
-#             self.tom_lowBound_full_trnSet, self.tom_highBound_full_trnSet = train_set_info[3]
-#             self.cymbal_lowBound_full_trnSet, self.cymbal_highBound_full_trnSet = train_set_info[4]
-#             self.min_complexity, self.max_complexity = train_set_info[6]
-#             self.genre_tags = train_set_info[7]
-#
-#             self.num_genres = len(self.genre_tags)
-#             # create a one-hot encoding for each genre
-#             self.genre_mapping = {genre: np.eye(self.num_genres)[idx].tolist() for idx, genre in enumerate(self.genre_tags)}
-#
-#             # collect input tensors, output tensors, and hvo_sequences
-#             # ------------------------------------------------------------------------------------------
-#             for idx, hvo_seq in enumerate(tqdm(subset, desc="loading data and extracting input output tensors")):
-#                 if hvo_seq.hits is not None:
-#                     hvo_seq.adjust_length(max_len)
-#                     if np.any(hvo_seq.hits):
-#                         # Ensure all have a length of max_len
-#                         self.hvo_sequences.append(hvo_seq)
-#                         self.output_grooves.append(hvo_seq.hvo)
-#                         flat_seq = hvo_seq.flatten_voices(voice_idx=tapped_voice_idx, reduce_dim=collapse_tapped_sequence)
-#                         self.input_grooves.append(flat_seq)
-#                         self.genre_encodings.append(self.map_genre_to_one_hot(hvo_seq.metadata["style_primary"]))
-#                         self.complexities.append(hvo_seq.get_complexity_surprisal()[0])
-#                         self.tempos.append(hvo_seq.tempos[0].qpm)
-#                         self.tempo_bins.append(map_tempo_to_categorical(hvo_seq.tempos[0].qpm))
-#
-#                         hits = hvo_seq.hits
-#                         self.hit_counts.append(np.sum(hits))
-#                         self.kick_counts.append(hits[:, 0].sum())
-#                         self.snare_counts.append(hits[:, 1].sum())
-#                         self.hat_counts.append(hits[:, 2:4].sum())
-#                         self.tom_counts.append(hits[:, 4:7].sum())
-#                         self.cymbal_counts.append(hits[:, 7:].sum())
-#
-#                         self.kick_is_muted.append(1 if self.kick_counts[-1] == 0 else 0)
-#                         self.snare_is_muted.append(1 if self.snare_counts[-1] == 0 else 0)
-#                         self.hat_is_muted.append(1 if self.hat_counts[-1] == 0 else 0)
-#                         self.tom_is_muted.append(1 if self.tom_counts[-1] == 0 else 0)
-#                         self.cymbal_is_muted.append(1 if self.cymbal_counts[-1] == 0 else 0)
-#
-#             self.tempos = torch.tensor(np.array(self.tempos), dtype=torch.long)
-#             self.kick_density_bins = map_voice_densities_to_categorical(self.kick_counts,
-#                                                                         self.kick_lowBound_full_trnSet.copy(),
-#                                                                         self.kick_highBound_full_trnSet.copy())
-#             self.snare_density_bins = map_voice_densities_to_categorical(self.snare_counts,
-#                                                                          self.snare_lowBound_full_trnSet.copy(),
-#                                                                          self.snare_highBound_full_trnSet.copy())
-#             self.hat_density_bins = map_voice_densities_to_categorical(self.hat_counts,
-#                                                                        self.hat_lowBound_full_trnSet.copy(),
-#                                                                        self.hat_highBound_full_trnSet.copy())
-#             self.tom_density_bins = map_voice_densities_to_categorical(self.tom_counts,
-#                                                                        self.tom_lowBound_full_trnSet.copy(),
-#                                                                        self.tom_highBound_full_trnSet.copy())
-#             self.cymbal_density_bins = map_voice_densities_to_categorical(self.cymbal_counts,
-#                                                                           self.cymbal_lowBound_full_trnSet.copy(),
-#                                                                           self.cymbal_highBound_full_trnSet.copy())
-#
-#
-#             # Load as tensors
-#             self.input_grooves = torch.tensor(np.array(self.input_grooves), dtype=torch.float32)
-#             self.output_grooves = torch.tensor(np.array(self.output_grooves), dtype=torch.float32)
-#             self.genre_encodings = torch.tensor(np.array(self.genre_encodings), dtype=torch.float32)
-#             self.genre_targets = torch.argmax(self.genre_encodings, dim=1)
-#
-#             groove_hit_counts = self.input_grooves[:, :, 0].sum(dim=1)
-#             output_groove_counts = self.output_grooves[:, :, :9].sum(dim=1).sum(dim=1)
-#             ratio = output_groove_counts / groove_hit_counts
-#             ratio = ratio.numpy()
-#             print(f"Max Ratio of output_groove_counts / groove_hit_counts: {ratio.max()}, shape: {ratio.shape}")
-#             # self.global_density_bins = map_global_density_to_categorical(self.hit_counts,
-#             #                                                              max_hits=max(self.hit_counts),
-#             #                                                              n_global_density_bins=num_global_density_bins)
-#             self.global_density_bins = torch.tensor(np.array(map_drum_to_groove_hit_ratio_to_categorical(ratio)), dtype=torch.long)
-#             self.complexities = torch.tensor(np.array(self.complexities), dtype=torch.float32)
-#             self.complexities = torch.clamp((self.complexities - self.min_complexity) / (self.max_complexity - self.min_complexity), 0, 1)
-#
-#             self.tempo_bins = torch.tensor(np.array(self.tempo_bins), dtype=torch.long)
-#             self.kick_density_bins = torch.tensor(np.array(self.kick_density_bins), dtype=torch.long)
-#             self.snare_density_bins = torch.tensor(np.array(self.snare_density_bins), dtype=torch.long)
-#             self.hat_density_bins = torch.tensor(np.array(self.hat_density_bins), dtype=torch.long)
-#             self.tom_density_bins = torch.tensor(np.array(self.tom_density_bins), dtype=torch.long)
-#             self.cymbal_density_bins = torch.tensor(np.array(self.cymbal_density_bins), dtype=torch.long)
-#             self.global_density_bins = torch.tensor(np.array(self.global_density_bins), dtype=torch.long)
-#
-#             self.kick_is_muted = torch.tensor(np.array(self.kick_is_muted), dtype=torch.long)
-#             self.snare_is_muted = torch.tensor(np.array(self.snare_is_muted), dtype=torch.long)
-#             self.hat_is_muted = torch.tensor(np.array(self.hat_is_muted), dtype=torch.long)
-#             self.tom_is_muted = torch.tensor(np.array(self.tom_is_muted), dtype=torch.long)
-#             self.cymbal_is_muted = torch.tensor(np.array(self.cymbal_is_muted), dtype=torch.long)
-#
-#             if augment_dataset:
-#                 # augment the dataset by appending the bar-swapped version of each sequence
-#                 self.hvo_sequences = self.hvo_sequences * 2
-#
-#                 # inputs (N, 32, 27)
-#                 # append with rotated 16 steps
-#                 self.input_grooves = torch.cat([self.input_grooves, torch.roll(self.input_grooves, 16, dims=1)], dim=0)
-#                 self.output_grooves = torch.cat([self.output_grooves, torch.roll(self.output_grooves, 16, dims=1)], dim=0)
-#                 self.complexities = torch.cat([self.complexities, self.complexities], dim=0)
-#                 self.genre_encodings = torch.cat([self.genre_encodings, self.genre_encodings], dim=0)
-#                 self.genre_targets = torch.cat([self.genre_targets, self.genre_targets], dim=0)
-#                 self.tempos = torch.cat([self.tempos, self.tempos], dim=0)
-#                 self.tempo_bins = torch.cat([self.tempo_bins, self.tempo_bins], dim=0)
-#                 self.kick_density_bins = torch.cat([self.kick_density_bins, self.kick_density_bins], dim=0)
-#                 self.snare_density_bins = torch.cat([self.snare_density_bins, self.snare_density_bins], dim=0)
-#                 self.hat_density_bins = torch.cat([self.hat_density_bins, self.hat_density_bins], dim=0)
-#                 self.tom_density_bins = torch.cat([self.tom_density_bins, self.tom_density_bins], dim=0)
-#                 self.cymbal_density_bins = torch.cat([self.cymbal_density_bins, self.cymbal_density_bins], dim=0)
-#                 self.global_density_bins = torch.cat([self.global_density_bins, self.global_density_bins], dim=0)
-#                 self.kick_is_muted = torch.cat([self.kick_is_muted, self.kick_is_muted], dim=0)
-#                 self.snare_is_muted = torch.cat([self.snare_is_muted, self.snare_is_muted], dim=0)
-#                 self.hat_is_muted = torch.cat([self.hat_is_muted, self.hat_is_muted], dim=0)
-#                 self.tom_is_muted = torch.cat([self.tom_is_muted, self.tom_is_muted], dim=0)
-#                 self.cymbal_is_muted = torch.cat([self.cymbal_is_muted, self.cymbal_is_muted], dim=0)
-#
-#
-#
-#                 # add the rolled groove to the second half of the hvo_sequences
-#                 for idx, hvo_seq in enumerate(self.hvo_sequences[len(self.hvo_sequences) // 2:]):
-#                     hvo_seq.hvo = self.output_grooves[idx].numpy()
-#
-#             # cache the processed data
-#             # ------------------------------------------------------------------------------------------
-#             if use_cached:
-#                 data_to_dump = {
-#                     "input_grooves": self.input_grooves.numpy(),
-#                     "output_grooves": self.output_grooves.numpy(),
-#                     "genre_encodings": self.genre_encodings.numpy(),
-#                     "genre_mapping": self.genre_mapping,
-#                     "genre_targets": self.genre_targets.numpy(),
-#                     "min_complexity": self.min_complexity,
-#                     "max_complexity": self.max_complexity,
-#                     "complexities": self.complexities.numpy(),
-#                     "tempos": self.tempos.numpy(),
-#                     "tempo_bins": self.tempo_bins.numpy(),
-#                     "num_tempo_bins": num_tempo_bins,
-#                     "n_density_bins": num_voice_density_bins,  # "n_density_bins": "num_voice_density_bins",
-#                     "hvo_sequences": self.hvo_sequences,
-#                     "kick_counts": self.kick_counts,
-#                     "kick_density_bins": self.kick_density_bins.numpy(),
-#                     "snare_counts": self.snare_counts,
-#                     "snare_density_bins": self.snare_density_bins.numpy(),
-#                     "hat_counts": self.hat_counts,
-#                     "hat_density_bins": self.hat_density_bins.numpy(),
-#                     "tom_counts": self.tom_counts,
-#                     "tom_density_bins": self.tom_density_bins.numpy(),
-#                     "cymbal_counts": self.cymbal_counts,
-#                     "cymbal_density_bins": self.cymbal_density_bins.numpy(),
-#                     "kick_lowBound_full_trnSet": self.kick_lowBound_full_trnSet,
-#                     "kick_highBound_full_trnSet": self.kick_highBound_full_trnSet,
-#                     "snare_lowBound_full_trnSet": self.snare_lowBound_full_trnSet,
-#                     "snare_highBound_full_trnSet": self.snare_highBound_full_trnSet,
-#                     "hat_lowBound_full_trnSet": self.hat_lowBound_full_trnSet,
-#                     "hat_highBound_full_trnSet": self.hat_highBound_full_trnSet,
-#                     "tom_lowBound_full_trnSet": self.tom_lowBound_full_trnSet,
-#                     "tom_highBound_full_trnSet": self.tom_highBound_full_trnSet,
-#                     "cymbal_lowBound_full_trnSet": self.cymbal_lowBound_full_trnSet,
-#                     "cymbal_highBound_full_trnSet": self.cymbal_highBound_full_trnSet,
-#                     "global_density_bins": self.global_density_bins.numpy(),
-#                     "kick_is_muted": self.kick_is_muted.numpy(),
-#                     "snare_is_muted": self.snare_is_muted.numpy(),
-#                     "hat_is_muted": self.hat_is_muted.numpy(),
-#                     "tom_is_muted": self.tom_is_muted.numpy(),
-#                     "cymbal_is_muted": self.cymbal_is_muted.numpy()
-#                 }
-#                 ofile = bz2.BZ2File(get_cached_filepath(), 'wb')
-#                 pickle.dump(data_to_dump, ofile)
-#                 ofile.close()
-#
-#         # Move to GPU if requested and GPU is available
-#         # ------------------------------------------------------------------------------------------
-#         if move_all_to_gpu and torch.cuda.is_available():
-#             self.input_grooves = self.input_grooves.to('cuda')
-#             self.output_grooves = self.output_grooves.to('cuda')
-#             # self.genre_encodings = self.genre_encodings.to('cuda')
-#             self.genre_targets = self.genre_targets.to('cuda')
-#             # self.complexities = self.complexities.to('cuda')
-#             # self.tempo_bins = self.tempo_bins.to('cuda')
-#             # self.kick_density_bins = self.kick_density_bins.to('cuda')
-#             # self.snare_density_bins = self.snare_density_bins.to('cuda')
-#             # self.hat_density_bins = self.hat_density_bins.to('cuda')
-#             # self.tom_density_bins = self.tom_density_bins.to('cuda')
-#             # self.cymbal_density_bins = self.cymbal_density_bins.to('cuda')
-#             self.global_density_bins = self.global_density_bins.to('cuda')
-#             self.kick_is_muted = self.kick_is_muted.to('cuda')
-#             self.snare_is_muted = self.snare_is_muted.to('cuda')
-#             self.hat_is_muted = self.hat_is_muted.to('cuda')
-#             self.tom_is_muted = self.tom_is_muted.to('cuda')
-#             self.cymbal_is_muted = self.cymbal_is_muted.to('cuda')
-#
-#         dataLoaderLogger.info(f"Loaded {len(self.input_grooves)} sequences")
-#
-#     def __len__(self):
-#         return len(self.hvo_sequences)
-#
-#     def __getitem__(self, idx):
-#         return (self.input_grooves[idx],     # 0: input_groove
-#                 self.complexities[idx],     # 1: complexity
-#                 self.tempos[idx],           # 2: tempo (real value - not binned)
-#                 self.genre_encodings[idx],  # 3: genre_encoding (one-hot)
-#                 self.genre_targets[idx],    # 4: genre_target (categorical)
-#                 self.output_grooves[idx],   # 5: output_groove (drum hvo)
-#                 self.global_density_bins[idx],  # 6: global_density_bins
-#                 self.tempo_bins[idx],       # 7: tempo_bin (categorical)
-#                 self.kick_is_muted[idx],    # 8: kick_is_muted
-#                 self.snare_is_muted[idx],   # 9: snare_is_muted
-#                 self.hat_is_muted[idx],     # 10: hat_is_muted
-#                 self.tom_is_muted[idx],     # 11: tom_is_muted
-#                 self.cymbal_is_muted[idx])  # 12: cymbal_is_muted
-#
-#     def __repr__(self):
-#         text =  f"    -------------------------------------\n"
-#         text += "Dataset Loaded using json file: \n"
-#         text += f"    {self.dataset_setting_json_path}\n"
-#         text += f"    ------------ __getitem__ returns a tuple of:\n"
-#         text += f"    input_groove: {self.input_grooves.shape}\n"
-#         text += f"    kick_density_bins: {self.kick_density_bins.shape}\n"
-#         text += f"    snare_density_bins: {self.snare_density_bins.shape}\n"
-#         text += f"    hat_density_bins: {self.hat_density_bins.shape}\n"
-#         text += f"    tom_density_bins: {self.tom_density_bins.shape}\n"
-#         text += f"    cymbal_density_bins: {self.cymbal_density_bins.shape}\n"
-#         text += f"    global_density_bins: {self.global_density_bins.shape}\n"
-#         text += f"    complexity: {self.complexities.shape}\n"
-#         text += f"    tempo: {self.tempos.shape}\n"
-#         text += f"    genre_encoding: {self.genre_encodings.shape}\n"
-#         text += f"    genre_target: {self.genre_targets.shape}\n"
-#         text += f"    output_groove: {self.output_grooves.shape}\n"
-#         text += f"    idx: {self.output_grooves.shape}\n"
-#         text += f"    ---------- Genre INFO ----------\n"
-#         text += f"    genre_mapping: {self.genre_mapping}\n"
-#         text += f"    num_genres: {self.num_genres}\n"
-#         text += f"    genre_tags: {self.genre_tags}\n"
-#         text += f"    -------- Complexity INFO -------\n"
-#         text += f"    min_complexity: {self.min_complexity}\n"
-#         text += f"    max_complexity: {self.max_complexity}\n"
-#         text += f"    -------- HVO INFO -------\n"
-#         text += f"    hvo_sequences: {len(self.hvo_sequences)}\n"
-#         text += f"    -------------------------------------\n"
-#         return text
-#
-#
-#
-#     def get_hvo_sequences_at(self, idx):
-#         return self.hvo_sequences[idx]
-#
-#     def get_inputs_at(self, idx):
-#         return self.input_grooves[idx]
-#
-#     def get_outputs_at(self, idx):
-#         return self.output_grooves[idx]
-#
-#     def get_genre_labels_for_all(self):
-#         return [self.genre_tags[int(tg_val)] for tg_val in self.genre_targets.detach().cpu().numpy()]
-#
-#     def get_num_genres(self):
-#         return self.num_genres
-#
-#     def get_genre_mapping(self):
-#         return self.genre_mapping
-#
-#     def map_genre_to_one_hot(self, genre):
-#         # check if lowercase version of genre matches lowercase version of genre in genre_mapping
-#         for g in self.genre_mapping.keys():
-#             if genre.lower() == g.lower():
-#                 return self.genre_mapping[g]
-#
-#         assert False, f"Genre {genre} not found in genre_mapping"
-#
-#     def get_genre_histogram(self):
-#         genre_histogram = {genre: 0 for genre in self.genre_mapping.keys()}
-#         for genre in self.genre_targets:
-#             genre_histogram[self.genre_tags[int(genre.item())]] += 1
-#         return genre_histogram
-#
-#     def get_complexities_per_genre(self):
-#         '''
-#         Returns the complexities per genre
-#         :return:
-#         '''
-#
-#         complexity_histogram_per_genre = {genre: [] for genre in self.genre_mapping.keys()}
-#         complexity_histogram_per_genre["all"] = []
-#
-#         for idx, hvo_seq in enumerate(self.hvo_sequences):
-#             genre = self.genre_targets[idx]
-#             complexity_histogram_per_genre[self.genre_tags[int(genre.item())]].append(self.complexities[idx].item())
-#
-#         return complexity_histogram_per_genre
-#
-#     def get_tempos_per_genre(self):
-#         '''
-#         Returns the tempos per genre
-#         :return:
-#         '''
-#
-#         tempo_histogram_per_genre = {genre: [] for genre in self.genre_mapping.keys()}
-#         tempo_histogram_per_genre["all"] = []
-#
-#         for idx, hvo_seq in enumerate(self.hvo_sequences):
-#             genre = self.genre_targets[idx]
-#             tempo_histogram_per_genre[self.genre_tags[int(genre.item())]].append(self.tempos[idx].item())
-#             tempo_histogram_per_genre["all"].append(self.tempos[idx].item())
-#
-#         return tempo_histogram_per_genre
-#
-#
-# class Groove2Groove2BarDataset(Dataset):
-#     def __init__(self, dataset_bz2_filepath, subset_tag, max_len, tapped_voice_idx=2,
-#                  move_all_to_gpu=False,
-#                  augment_dataset=False,
-#                  use_cached=True,
-#                  down_sampled_ratio=None,
-#                  force_regenerate=False):
-#
-#         """
-#         :param dataset_bz2_filepath:  path to the bz2 file containing the dataset settings
-#         :param subset_tag:                [str] whether to load the train/test/validation set
-#         :param max_len:              [int] maximum length of the sequences to be loaded
-#         :param tapped_voice_idx:    [int] index of the voice to be tapped (default is 2 which is usually closed hat)
-#         :param down_sampled_ratio: [float] down samples the data by the ratio provided (e.g. 0.5)
-#         :param move_all_to_gpu: [bool] moves all the data to the gpu
-#         :param augment_dataset: [bool] if True, will augment the dataset by appending the bar-swapped version of each sequence
-#         :param use_cached: [bool] if True, will load the cached version of the dataset if available
-#         :param force_regenerate: [bool] if True, will regenerate the cached version of the dataset
-#         """
-#         self.dataset_setting_json_path = dataset_bz2_filepath
-#
-#         if down_sampled_ratio is not None:
-#             if down_sampled_ratio <= 0:
-#                 down_sampled_ratio = None
-#
-#             assert down_sampled_ratio < 1, "down_sampled_ratio should be less than 1"
-#
-#         def get_cached_filepath():
-#             dir_ = "cached/TorchDatasets"
-#             filename = (f"{dataset_bz2_filepath.split('/')[-1]}_{subset_tag}_{max_len}_{tapped_voice_idx}"
-#                         f"_{augment_dataset}_{down_sampled_ratio}.bz2pickle")
-#             if not os.path.exists(dir_):
-#                 os.makedirs(dir_)
-#             return os.path.join(dir_, filename)
-#
-#         # check if cached version exists
-#         # ------------------------------------------------------------------------------------------
-#         if use_cached and not force_regenerate:
-#             if os.path.exists(get_cached_filepath()):
-#                 dataLoaderLogger.info(f"Groove2Groove2BarDataset Constructor --> Loading Cached Version from: {get_cached_filepath()}")
-#                 ifile = bz2.BZ2File(get_cached_filepath(), 'rb')
-#                 data = pickle.load(ifile)
-#                 ifile.close()
-#                 self.input_grooves = torch.tensor(data["input_grooves"], dtype=torch.float32)
-#                 self.output_grooves = torch.tensor(data["output_grooves"], dtype=torch.float32)
-#                 self.genre_encodings = torch.tensor(data["genre_encodings"], dtype=torch.float32)
-#                 self.genre_mapping = data["genre_mapping"]
-#                 self.genre_targets = torch.tensor(data["genre_targets"], dtype=torch.long)
-#                 self.tempos = torch.tensor(data["tempos"], dtype=torch.long)
-#                 self.hvo_sequences = data["hvo_sequences"]
-#                 self.genre_tags = sorted(list(self.genre_mapping.keys()))
-#                 self.num_genres = len(self.genre_tags) + 1
-#                 process_data = False
-#             else:
-#                 dataLoaderLogger.info(f"No Cached Version Available Here: {get_cached_filepath()}. ")
-#                 process_data = True
-#         else:
-#             process_data = True
-#
-#         if process_data:
-#             # Get processed inputs, outputs and hvo sequences
-#             self.input_grooves = list()
-#             self.output_grooves = list()
-#             self.genre_encodings = list()
-#             self.genre_targets = list()
-#             self.hvo_sequences = list()
-#             self.tempos = list()
-#
-#             # up sample to ensure genre balance
-#             # ------------------------------------------------------------------------------------------
-#             # load pre-stored hvo_sequences or
-#             #   a portion of them uniformly sampled if down_sampled_ratio is provided
-#             # ------------------------------------------------------------------------------------------
-#             with bz2.BZ2File(dataset_bz2_filepath, 'rb') as f:
-#                 assert os.path.exists(dataset_bz2_filepath), f"Dataset Setting File Not Found: {dataset_bz2_filepath}"
-#                 loaded_data = pickle.load(f)
-#                 subset = loaded_data[subset_tag]
-#
-#             if subset_tag == "train":
-#                 self.genre_tags = list(sorted(set(subset['style_primary'])))
-#             else:
-#                 with bz2.BZ2File(dataset_bz2_filepath, 'rb') as f:
-#                     loaded_data = pickle.load(f)
-#                     subset_temp = loaded_data["train"]
-#                 self.genre_tags = list(sorted(set(subset_temp['style_primary'])))
-#
-#             self.num_genres = len(self.genre_tags)
-#             # create a one-hot encoding for each genre
-#             self.genre_mapping = {genre: np.eye(self.num_genres)[idx].tolist() for idx, genre in enumerate(self.genre_tags)}
-#
-#             # collect input tensors, output tensors, and hvo_sequences
-#             # ------------------------------------------------------------------------------------------
-#
-#             for idx, hvo_seq in enumerate(tqdm(subset['outputs_hvo_seqs'], desc="loading data and extracting input output tensors")):
-#                 self.hvo_sequences.append(hvo_seq)
-#                 hvo_seq.adjust_length(max_len)
-#                 self.tempos.append(hvo_seq.tempos[0].qpm)
-#                 self.genre_encodings.append(self.map_genre_to_one_hot(hvo_seq.metadata["style_primary"]))
-#                 self.genre_targets.append(self.genre_tags.index(hvo_seq.metadata["style_primary"]))
-#
-#             self.tempos = torch.tensor(np.array(self.tempos), dtype=torch.long)
-#
-#             # Load as tensors
-#             self.input_grooves = torch.tensor(np.array(subset['inputs']), dtype=torch.float32)
-#             self.output_grooves = torch.tensor(np.array(subset['outputs']), dtype=torch.float32)
-#             self.genre_encodings = torch.tensor(np.array(self.genre_encodings), dtype=torch.float32)
-#             self.genre_targets = torch.argmax(self.genre_encodings, dim=1)
-#
-#             groove_hit_counts = self.input_grooves[:, :, 0].sum(dim=1)
-#             output_groove_counts = self.output_grooves[:, :, 0].sum(dim=1)
-#             ratio = output_groove_counts / groove_hit_counts
-#             ratio = ratio.numpy()
-#             print(f"Max Ratio of output_groove_counts / groove_hit_counts: {ratio.max()}, shape: {ratio.shape}")
-#
-#             # check if should down sample the data
-#             if down_sampled_ratio is not None:
-#                 n_samples = int(len(self.input_grooves) * down_sampled_ratio)
-#                 idxs = np.random.choice(len(self.input_grooves), n_samples, replace=False)
-#                 self.input_grooves = self.input_grooves[idxs]
-#                 self.output_grooves = self.output_grooves[idxs]
-#                 self.genre_encodings = self.genre_encodings[idxs]
-#                 self.genre_targets = self.genre_targets[idxs]
-#                 self.tempos = self.tempos[idxs]
-#                 self.hvo_sequences = [self.hvo_sequences[idx] for idx in idxs]
-#
-#             if augment_dataset:
-#                 # augment the dataset by appending the bar-swapped version of each sequence
-#                 self.hvo_sequences = self.hvo_sequences * 2
-#
-#                 # inputs (N, 32, 27)
-#                 # append with rotated 16 steps
-#                 self.input_grooves = torch.cat([self.input_grooves, torch.roll(self.input_grooves, 16, dims=1)], dim=0)
-#                 self.output_grooves = torch.cat([self.output_grooves, torch.roll(self.output_grooves, 16, dims=1)], dim=0)
-#                 self.genre_encodings = torch.cat([self.genre_encodings, self.genre_encodings], dim=0)
-#                 self.genre_targets = torch.cat([self.genre_targets, self.genre_targets], dim=0)
-#                 self.tempos = torch.cat([self.tempos, self.tempos], dim=0)
-#
-#
-#                 # add the rolled groove to the second half of the hvo_sequences
-#                 for idx, hvo_seq in enumerate(self.hvo_sequences[len(self.hvo_sequences) // 2:]):
-#                     hvo_seq.hvo = self.output_grooves[idx].numpy()
-#
-#             # cache the processed data
-#             # ------------------------------------------------------------------------------------------
-#             if use_cached:
-#                 data_to_dump = {
-#                     "input_grooves": self.input_grooves.numpy(),
-#                     "output_grooves": self.output_grooves.numpy(),
-#                     "genre_encodings": self.genre_encodings.numpy(),
-#                     "genre_mapping": self.genre_mapping,
-#                     "genre_targets": self.genre_targets.numpy(),
-#                     "tempos": self.tempos.numpy(),
-#                     "hvo_sequences": self.hvo_sequences,
-#                 }
-#                 ofile = bz2.BZ2File(get_cached_filepath(), 'wb')
-#                 pickle.dump(data_to_dump, ofile)
-#                 ofile.close()
-#
-#         # Move to GPU if requested and GPU is available
-#         # ------------------------------------------------------------------------------------------
-#         if move_all_to_gpu and torch.cuda.is_available():
-#             self.input_grooves = self.input_grooves.to('cuda')
-#             self.output_grooves = self.output_grooves.to('cuda')
-#             self.genre_targets = self.genre_targets.to('cuda')
-#
-#         dataLoaderLogger.info(f"Loaded {len(self.input_grooves)} sequences")
-#
-#     def __len__(self):
-#         return len(self.hvo_sequences)
-#
-#     def __getitem__(self, idx):
-#         return (self.input_grooves[idx],    # 0: input_groove
-#                 self.output_grooves[idx],   # 1: output_groove (drum hvo)
-#                 self.tempos[idx],           # 3: tempo (real value - not binned)
-#                 self.genre_encodings[idx],  # 4: genre_encoding (one-hot)
-#                 self.genre_targets[idx]     # 5: genre_target (categorical)
-#                 )
-#     def __repr__(self):
-#         text =  f"    -------------------------------------\n"
-#         text += "Dataset Loaded using json file: \n"
-#         text += f"    {self.dataset_setting_json_path}\n"
-#         text += f"    ------------ __getitem__ returns a tuple of:\n"
-#         text += f"    input_groove: {self.input_grooves.shape}\n"
-#         text += f"    tempo: {self.tempos.shape}\n"
-#         text += f"    genre_encoding: {self.genre_encodings.shape}\n"
-#         text += f"    genre_target: {self.genre_targets.shape}\n"
-#         text += f"    output_groove: {self.output_grooves.shape}\n"
-#         text += f"    idx: {self.output_grooves.shape}\n"
-#         text += f"    ---------- Genre INFO ----------\n"
-#         text += f"    genre_mapping: {self.genre_mapping}\n"
-#         text += f"    num_genres: {self.num_genres}\n"
-#         text += f"    genre_tags: {self.genre_tags}\n"
-#         text += f"    -------- HVO INFO -------\n"
-#         text += f"    hvo_sequences: {len(self.hvo_sequences)}\n"
-#         text += f"    -------------------------------------\n"
-#         return text
-#
-#
-#
-#     def get_hvo_sequences_at(self, idx):
-#         return self.hvo_sequences[idx]
-#
-#     def get_inputs_at(self, idx):
-#         return self.input_grooves[idx]
-#
-#     def get_outputs_at(self, idx):
-#         return self.output_grooves[idx]
-#
-#     def get_genre_labels_for_all(self):
-#         return [self.genre_tags[int(tg_val)] for tg_val in self.genre_targets.detach().cpu().numpy()]
-#
-#     def get_num_genres(self):
-#         return self.num_genres
-#
-#     def get_genre_mapping(self):
-#         return self.genre_mapping
-#
-#     def map_genre_to_one_hot(self, genre):
-#         # check if lowercase version of genre matches lowercase version of genre in genre_mapping
-#         for g in self.genre_mapping.keys():
-#             if genre.lower() == g.lower():
-#                 return self.genre_mapping[g]
-#
-#         assert False, f"Genre {genre} not found in genre_mapping"
-#
-#     def get_genre_histogram(self):
-#         genre_histogram = {genre: 0 for genre in self.genre_mapping.keys()}
-#         for genre in self.genre_targets:
-#             genre_histogram[self.genre_tags[int(genre.item())]] += 1
-#         return genre_histogram
-#
-#     def get_complexities_per_genre(self):
-#         '''
-#         Returns the complexities per genre
-#         :return:
-#         '''
-#
-#         complexity_histogram_per_genre = {genre: [] for genre in self.genre_mapping.keys()}
-#         complexity_histogram_per_genre["all"] = []
-#
-#         for idx, hvo_seq in enumerate(self.hvo_sequences):
-#             genre = self.genre_targets[idx]
-#             complexity_histogram_per_genre[self.genre_tags[int(genre.item())]].append(self.complexities[idx].item())
-#
-#         return complexity_histogram_per_genre
-#
-#     def get_tempos_per_genre(self):
-#         '''
-#         Returns the tempos per genre
-#         :return:
-#         '''
-#
-#         tempo_histogram_per_genre = {genre: [] for genre in self.genre_mapping.keys()}
-#         tempo_histogram_per_genre["all"] = []
-#
-#         for idx, hvo_seq in enumerate(self.hvo_sequences):
-#             genre = self.genre_targets[idx]
-#             tempo_histogram_per_genre[self.genre_tags[int(genre.item())]].append(self.tempos[idx].item())
-#             tempo_histogram_per_genre["all"].append(self.tempos[idx].item())
-#
-#         return tempo_histogram_per_genre
-#
 
 class PairedLTADataset(Dataset):
     def __init__(self,
@@ -1330,7 +639,9 @@ class PairedLTADataset(Dataset):
                  input_bars=32,
                  hop_n_bars=2,
                  input_has_velocity=True,
-                 input_has_offsets=True):
+                 input_has_offsets=True,
+                 create_subsequences=False,
+                 down_sampled_ratio=None):
 
         def get_cached_filepath():
             dir_ = "cached/TorchDatasets"
@@ -1342,7 +653,6 @@ class PairedLTADataset(Dataset):
 
         # check if cached version exists
         cached_exists = os.path.exists(get_cached_filepath())
-
         
         if cached_exists:
             # todo load cached version
@@ -1368,8 +678,8 @@ class PairedLTADataset(Dataset):
                 #     song_ids.append(song_id)
     
                 if len(i1.time_signatures) == 1 and len(i2.time_signatures) == 1:
-                    if i1.time_signatures[0].numerator == i2.time_signatures[0].numerator and i1.time_signatures[
-                        0].denominator == i2.time_signatures[0].denominator:
+                    if (i1.time_signatures[0].numerator == i2.time_signatures[0].numerator and
+                            i1.time_signatures[0].denominator == i2.time_signatures[0].denominator):
                         if i1.time_signatures[0].numerator == 4 and i1.time_signatures[0].denominator == 4:
                             song_ids_.append(song_id)
                             
@@ -1381,7 +691,9 @@ class PairedLTADataset(Dataset):
                 input_bars=input_bars,
                 hop_n_bars=hop_n_bars,
                 input_has_velocity=input_has_velocity,
-                input_has_offset=input_has_offsets)
+                input_has_offset=input_has_offsets,
+                down_sampled_ratio=down_sampled_ratio)
+
 
             self.previous_input_bars = torch.tensor(previous_input_bars, dtype=torch.float32)
             self.upcoming_input_2_bars = torch.tensor(upcoming_input_2_bars, dtype=torch.float32)
@@ -1462,13 +774,13 @@ if __name__ == "__main__":
         input_has_offsets=True
     )
 
-    # access a batch
-    previous_input_bars, upcoming_input_2_bars, previous_stacked_input_output_bars, upcoming_stacked_input_output_2_bars, previous_output_bars, upcoming_output_2_bars, shifted_upcoming_output_2_bars = training_dataset[2]
-
-    previous_input_bars.shape
-    upcoming_input_2_bars.shape
-    previous_stacked_input_output_bars.shape
-    upcoming_stacked_input_output_2_bars.shape
-    previous_output_bars.shape
-    upcoming_output_2_bars.shape
-    shifted_upcoming_output_2_bars.shape
+    # # access a batch
+    # previous_input_bars, upcoming_input_2_bars, previous_stacked_input_output_bars, upcoming_stacked_input_output_2_bars, previous_output_bars, upcoming_output_2_bars, shifted_upcoming_output_2_bars = training_dataset[2]
+    #
+    # previous_input_bars.shape
+    # upcoming_input_2_bars.shape
+    # previous_stacked_input_output_bars.shape
+    # upcoming_stacked_input_output_2_bars.shape
+    # previous_output_bars.shape
+    # upcoming_output_2_bars.shape
+    # shifted_upcoming_output_2_bars.shape
