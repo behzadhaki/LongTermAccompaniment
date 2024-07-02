@@ -147,10 +147,17 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
     loss_h = hit_loss_function(hit_logits, hit_targets)           # batch, time steps, voices (10 is a scaling factor to match the other losses)
     hit_mask = None
     if hit_loss_function.reduction == 'none':
-        # put more weight on the hits
-        hit_mask = (hit_targets > 0.5).float() * 3 + 1 # hits weighted almost 10 times more than the misses (in reality, 2 to 1 ratio)
-        # weight 0, 2, 4, ..., 32 positions half as much as the hits
-        hit_mask[:, ::2, :] = hit_mask[:, ::2, :] * 0.5
+        # # put more weight on the hits
+        # hit_mask = (hit_targets > 0.5).float() * 3 + 1 # hits weighted almost 10 times more than the misses (in reality, 2 to 1 ratio)
+        # # weight 0, 2, 4, ..., 32 positions half as much as the hits
+        # hit_mask[:, ::2, :] = hit_mask[:, ::2, :] * 0.5
+
+        # the places where they don't overlap, the loss is higher
+        predicted_hits = torch.sigmoid(hit_logits) > 0.5
+
+        # overlap between the predicted hits and the actual hits
+        overlap = (predicted_hits != hit_targets) * 2
+        hit_mask = overlap + 1
 
         loss_h = loss_h * hit_mask
         loss_h = loss_h.mean()
