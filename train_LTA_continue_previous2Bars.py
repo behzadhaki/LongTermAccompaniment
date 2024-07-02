@@ -105,8 +105,8 @@ parser.add_argument("--subsequence_hop_n_bars", type=int,
 # ----------------------- Misc Params -----------------------
 parser.add_argument("--save_model", type=bool, help="Save model", default=True)
 parser.add_argument("--save_model_dir", type=str, help="Path to save the model", default="misc/LTA")
-parser.add_argument("--upload_to_wandb", type=bool, help="Upload to wandb", default=True)
-parser.add_argument("--save_model_frequency", type=int, help="Save model every n epochs", default=30)
+parser.add_argument("--upload_to_wandb", type=bool, help="Upload to wandb", default=False)
+parser.add_argument("--save_model_frequency", type=int, help="Save model every n epochs", default=1)
 
 args, unknown = parser.parse_known_args()
 if unknown:
@@ -308,7 +308,7 @@ if __name__ == "__main__":
         with torch.no_grad():
             h, v, o, hvo = model_.sample(
                 src=enc_src,
-                mask=create_src_mask(num_input_bars, config['PerformanceEncoder']['max_n_bars']).to(device),
+                src_key_padding_and_memory_mask=create_src_mask(num_input_bars, config['PerformanceEncoder']['max_n_bars']).to(device),
                 tgt=dec_src
             )
         return hvo
@@ -484,7 +484,7 @@ if __name__ == "__main__":
         # Save the model if needed
         # ---------------------------------------------------------------------------------------------------
         if args.save_model:
-            if epoch % args.save_model_frequency == 0 and epoch > 0:
+            if epoch % args.save_model_frequency == 0:
                 if epoch < 10:
                     ep_ = f"00{epoch}"
                 elif epoch < 100:
