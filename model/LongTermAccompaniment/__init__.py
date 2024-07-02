@@ -356,6 +356,14 @@ class LongTermAccompaniment(torch.nn.Module):
             src_rhythm_encodings=encoded_bars,
             src_key_padding_and_memory_mask=src_key_padding_and_memory_mask)
 
+        # check if batch size is 1
+        if tgt.shape[0] == 1:
+            i = src.shape[1]
+            for i, val in enumerate(src_key_padding_and_memory_mask[0]):
+                if val:
+                    break
+            perf_encodings = perf_encodings[:, :i, :]
+
         # decode the output groove
         h_logits, v_logits, o_logits = self.Performance2GrooveDecoder.forward(
             tgt=tgt,
@@ -365,6 +373,8 @@ class LongTermAccompaniment(torch.nn.Module):
 
     @torch.jit.ignore
     def sample(self, src: torch.Tensor, src_key_padding_and_memory_mask: torch.Tensor, tgt: torch.Tensor):
+
+
         h_logits, v_logits, o_logits = self.forward(
             src=src,
             src_key_padding_and_memory_mask=src_key_padding_and_memory_mask,

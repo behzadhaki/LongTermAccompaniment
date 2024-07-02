@@ -1,9 +1,9 @@
-ge_d_model: 32
+ge_d_model: 128
 ge_d_ff: 128
 ge_n_layers: 4
 ge_n_heads: 4
 ge_n_src_voices: 10
-ge_nbars_per_segment: 4
+ge_nbars_per_segment: 1
 ge_has_velocity: true
 ge_has_offset: true
 
@@ -12,7 +12,7 @@ ge_velocity_dropout: 0.1
 ge_offset_dropout: 0.1
 ge_positional_dropout: 0.1
 
-pe_d_model: 32
+pe_d_model: 128
 pe_d_ff: 128
 pe_n_layers: 4
 pe_n_heads: 4
@@ -21,7 +21,7 @@ pe_max_n_bars: 32
 pe_dropout: 0.1
 pe_positional_dropout: 0.1
 
-dc_d_model: 32
+dc_d_model: 128
 dc_d_ff: 128
 dc_n_layers: 4
 dc_n_heads: 4
