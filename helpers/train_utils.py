@@ -148,9 +148,9 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
     hit_mask = None
     if hit_loss_function.reduction == 'none':
         # put more weight on the hits
-        hit_mask = (hit_targets > 0.5).float() * 1 + 1 # hits weighted almost 10 times more than the misses (in reality, 2 to 1 ratio)
+        hit_mask = (hit_targets > 0.5).float() * 3 + 1 # hits weighted almost 10 times more than the misses (in reality, 2 to 1 ratio)
         # weight 0, 2, 4, ..., 32 positions half as much as the hits
-        # hit_mask[:, ::2, :] = hit_mask[:, ::2, :] * 0.25
+        hit_mask[:, ::2, :] = hit_mask[:, ::2, :] * 0.5
 
         loss_h = loss_h * hit_mask
         loss_h = loss_h.mean()

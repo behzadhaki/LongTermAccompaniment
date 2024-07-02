@@ -33,11 +33,11 @@ dc_velocity_dropout: 0.1
 dc_offset_dropout: 0.1
 dc_positional_dropout: 0.1
 
-scale_h_loss: 0.5
-scale_v_loss: 3
-scale_o_loss: 20
+scale_h_loss: 0.25
+scale_v_loss: 1
+scale_o_loss: 1
 optimizer: "adam"
-lr: 0.0006369948608989782
+lr: 0.00006369948608989782
 batch_size: 64
 epochs: 100
 device: "cuda"

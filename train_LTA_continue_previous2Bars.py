@@ -103,7 +103,7 @@ parser.add_argument("--hop_n_bars", type=int,
 parser.add_argument("--save_model", type=bool, help="Save model", default=True)
 parser.add_argument("--save_model_dir", type=str, help="Path to save the model", default="misc/LTA")
 parser.add_argument("--upload_to_wandb", type=bool, help="Upload to wandb", default=True)
-parser.add_argument("--save_model_frequency", type=int, help="Save model every n epochs", default=20)
+parser.add_argument("--save_model_frequency", type=int, help="Save model every n epochs", default=30)
 
 args, unknown = parser.parse_known_args()
 if unknown:
@@ -362,8 +362,8 @@ if __name__ == "__main__":
 
         wandb.log(test_log_metrics, commit=False)
         logger.info(
-            f"Epoch {epoch} Finished with total train loss of {train_log_metrics['Loss_Criteria/loss_recon']} "
-            f"and test loss of {test_log_metrics['Loss_Criteria/loss_recon']}")
+            f"Epoch {epoch} Finished with total train loss of {train_log_metrics['Loss_Criteria/loss_recon_train']} "
+            f"and test loss of {test_log_metrics['Loss_Criteria/loss_recon_test']}")
 
         # Generate PianoRolls and UMAP Plots  and KL/OA PLots if Needed
         # ---------------------------------------------------------------------------------------------------
@@ -452,7 +452,7 @@ if __name__ == "__main__":
                 else:
                     ep_ = epoch
                 model_artifact = wandb.Artifact(f'model_epoch_{ep_}', type='model')
-                model_path = f"{args.save_model_dir}/{args.wandb_project}/{run_name}_{run_id}/{ep_}.pth"
+                model_path = f"{args.save_model_dir}/{run_name}_{run_id}/{ep_}.pth"
                 model_on_device.save(model_path)
                 model_artifact.add_file(model_path)
                 wandb_run.log_artifact(model_artifact)
