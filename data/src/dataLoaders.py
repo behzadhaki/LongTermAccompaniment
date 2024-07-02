@@ -12,6 +12,8 @@ import bz2
 import logging
 import random
 from data import *
+import matplotlib.pyplot as plt
+from scipy.stats import binned_statistic
 
 logging.basicConfig(level=logging.DEBUG)
 dataLoaderLogger = logging.getLogger("data.Base.dataLoaders")
@@ -486,272 +488,156 @@ def upsample_to_ensure_genre_balance(dataset_setting_json_path, subset_tag, cach
         return set_data_
 
 
-def extract_data(song_ids, instrument1s, instrument2s, input_bars, hop_n_bars, input_has_velocity, input_has_offset, down_sampled_ratio=None, create_subsequences=False,
-                 subsequence_hop_bars=1):
-    '''
-    Splits the paired Lakh data into input and output segments for the LTA model 
-    :param song_ids:        List of song ids to extract data from
-    :param instrument1s:    Dictionary of instrument 1 data
-    :param instrument2s:    Dictionary of instrument 2 data
-    :param input_bars:      Number of bars to use as input
-    :param hop_n_bars:      Number of bars to move forward for the next input
-    :return:               Tuple of torch tensors containing the input and output data
-        - previous_input_bars:                 Tensor of shape (n_segments, input_bars * 16, n_features)
-        - upcoming_input_2_bars:               Tensor of shape (n_segments, 2 * 16, n_features)
-        - previous_stacked_input_output_bars:  Tensor of shape (n_segments, input_bars * 16, 2 * n_features)
-        - upcoming_stacked_input_output_2_bars:Tensor of shape (n_segments, 2 * 16, 2 * n_features)
-        - previous_output_bars:                Tensor of shape (n_segments, input_bars * 16, n_features)
-        - upcoming_output_2_bars:              Tensor of shape (n_segments, 2 * 16, n_features)
-    '''
-
-    i1_hvos = []
-    i2_hvos = []
-
-    # seg_len must be input_bars * 16 + 32
-    seg_len = input_bars * 16 + 32
-
-    # break into bars
-    for song_id in tqdm(song_ids):
-        i1 = instrument1s[song_id]
-        i2 = instrument2s[song_id]
-
-        n_steps = max(i1.hvo.shape[0], i2.hvo.shape[0], input_bars * 16)
-
-        i1.adjust_length(n_steps)
-        i2.adjust_length(n_steps)
-
-        if i1.hvo.shape[0] != i2.hvo.shape[0]:
-            print(i1.hvo.shape, i2.hvo.shape)
-            raise ValueError('Shapes do not match')
-
-        n_bars = n_steps // 16
-
-        for i in range(0, n_bars - input_bars + 1, hop_n_bars):
-            seg1 = i1.hvo[i * 16:(i + input_bars + 2) * 16]
-            seg2 = i2.hvo[i * 16:(i + input_bars + 2) * 16]
-
-            if seg1.shape[0] != seg_len:
-                # zero pad
-                seg1 = np.vstack([seg1, np.zeros((seg_len - seg1.shape[0], seg1.shape[1]))])
-                seg2 = np.vstack([seg2, np.zeros((seg_len - seg2.shape[0], seg2.shape[1]))])
-
-            i1_hvos.append(seg1)
-            i2_hvos.append(seg2)
-
-    previous_input_bars__ = []
-    upcoming_input_2_bars__ = []
-    previous_stacked_input_output_bars__ = []
-    upcoming_stacked_input_output_2_bars__ = []
-    previous_output_bars__ = []
-    upcoming_output_2_bars__ = []
-
-    for i1_hvo, i2_hvo in tqdm(zip(i1_hvos, i2_hvos)):
-
-        if down_sampled_ratio is not None:
-            if random.random() > down_sampled_ratio:
-                continue
-
-        assert i1_hvo.shape[0] == i2_hvo.shape[0]
-
-        n_steps = i1_hvo.shape[0]
-
-        n_voices_1 = i1_hvo.shape[-1] // 3
-        n_voices_2 = i2_hvo.shape[-1] // 3
-        h1 = i1_hvo[:, :n_voices_1]
-        v1 = i1_hvo[:, n_voices_1:2 * n_voices_1]
-        o1 = i1_hvo[:, 2 * n_voices_1:]
-        h2 = i2_hvo[:, :n_voices_2]
-        v2 = i2_hvo[:, n_voices_2:2 * n_voices_2]
-        o2 = i2_hvo[:, 2 * n_voices_2:]
-
-        if input_has_velocity and input_has_offset:
-            hvo1 = torch.tensor(np.hstack([h1, v1, o1]), dtype=torch.float32)
-        elif input_has_offset:
-            hvo1 = torch.tensor(np.hstack([h1, o1]), dtype=torch.float32)
-        elif input_has_velocity:
-            hvo1 = torch.tensor(np.hstack([h1, v1]), dtype=torch.float32)
-        else:
-            hvo1 = torch.tensor(np.hstack([h1]), dtype=torch.float32)
-
-        hvo2 = torch.tensor(np.hstack([h2, v2, o2]), dtype=torch.float32)
-
-        # add inputs 
-        previous_input_bars__.append(hvo1[:-32])
-        upcoming_input_2_bars__.append(hvo1[-32:])
-
-        # add outputs        
-        previous_output_bars__.append(hvo2[:-32])
-        upcoming_output_2_bars__.append(hvo2[-32:])
-
-        # add stacked inputs and outputs
-        if input_has_velocity and input_has_offset:
-            i12 = torch.tensor(np.hstack([h1, h2, v1, v2, o1, o2]), dtype=torch.float32)
-        elif input_has_offset:
-            i12 = torch.tensor(np.hstack([h1, h2, o1, o2]), dtype=torch.float32)
-        elif input_has_velocity:
-            i12 = torch.tensor(np.hstack([h1, h2, v1, v2]), dtype=torch.float32)
-        else:
-            i12 = torch.tensor(np.hstack([h1, h2]), dtype=torch.float32)
-
-        previous_stacked_input_output_bars__.append(i12[:-32])
-        upcoming_stacked_input_output_2_bars__.append(i12[-32:])
-
-    previous_input_bars_ = []
-    upcoming_input_2_bars_ = []
-    previous_stacked_input_output_bars_ = []
-    upcoming_stacked_input_output_2_bars_ = []
-    previous_output_bars_ = []
-    upcoming_output_2_bars_ = []
-    src_key_padding_masks_ = []
-    n_input_bars_ = []
-
-    full_mask = torch.zeros(input_bars, dtype=torch.bool)
-
-    hop_beginnings = [i for i in range(0, len(previous_input_bars__) - 2, subsequence_hop_bars)][1:]
-
-    for i in range(len(previous_input_bars__)):
-        # first add full version
-        previous_input_bars_.append(previous_input_bars__[i])
-        upcoming_input_2_bars_.append(upcoming_input_2_bars__[i])
-        previous_stacked_input_output_bars_.append(previous_stacked_input_output_bars__[i])
-        upcoming_stacked_input_output_2_bars_.append(upcoming_stacked_input_output_2_bars__[i])
-        previous_output_bars_.append(previous_output_bars__[i])
-        upcoming_output_2_bars_.append(upcoming_output_2_bars__[i])
-        src_key_padding_masks_.append(full_mask)
-        n_input_bars_.append(input_bars)
-
-    # convert to torch tensors
-    previous_input_bars = torch.vstack([x.unsqueeze(0) for x in previous_input_bars_])
-    upcoming_input_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_input_2_bars_])
-    previous_stacked_input_output_bars = torch.vstack([x.unsqueeze(0) for x in previous_stacked_input_output_bars_])
-    upcoming_stacked_input_output_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_stacked_input_output_2_bars_])
-    previous_output_bars = torch.vstack([x.unsqueeze(0) for x in previous_output_bars_])
-    upcoming_output_2_bars = torch.vstack([x.unsqueeze(0) for x in upcoming_output_2_bars_])
-
-    return previous_input_bars, upcoming_input_2_bars, previous_stacked_input_output_bars, upcoming_stacked_input_output_2_bars, previous_output_bars, upcoming_output_2_bars
-
-
 class PairedLTADataset(Dataset):
     def __init__(self,
                  input_inst_dataset_bz2_filepath,
                  output_inst_dataset_bz2_filepath,
                  shift_tgt_by_n_steps=1,
-                 input_bars=32,
+                 max_input_bars=32,
+                 continuation_bars=2,
                  hop_n_bars=2,
                  input_has_velocity=True,
-                 input_has_offsets=True,
-                 create_subsequences=False,
-                 down_sampled_ratio=None):
+                 input_has_offsets=True):
 
         def get_cached_filepath():
             dir_ = "cached/TorchDatasets"
-            filename = (f"{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
-                        f"_{input_bars}_{hop_n_bars}_{input_has_velocity}_{input_has_offsets}_{shift_tgt_by_n_steps}.bz2pickle")
+            filename = (
+                f"PairedLTADataset_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
+                f"_{max_input_bars}_{hop_n_bars}_{input_has_velocity}_{input_has_offsets}_{shift_tgt_by_n_steps}.bz2pickle")
             if not os.path.exists(dir_):
                 os.makedirs(dir_)
             return os.path.join(dir_, filename)
 
+        def stack_two_hvos(hvo1, hvo2, use_velocity, use_offsets):
+            # assert same length
+            assert hvo1.shape[0] == hvo2.shape[0], f"{hvo1.shape} != {hvo2.shape}"
+
+            n_voices_1 = hvo1.shape[-1] // 3
+            n_voices_2 = hvo2.shape[-1] // 3
+
+            h1 = hvo1[:, :n_voices_1]
+            v1 = hvo1[:, n_voices_1:2 * n_voices_1]
+            o1 = hvo1[:, 2 * n_voices_1:]
+            h2 = hvo2[:, :n_voices_2]
+            v2 = hvo2[:, n_voices_2:2 * n_voices_2]
+            o2 = hvo2[:, 2 * n_voices_2:]
+
+            if use_velocity and use_offsets:
+                return np.hstack([h1, h2, v1, v2, o1, o2])
+            elif use_offsets:
+                return np.hstack([h1, h2, o1, o2])
+            elif use_velocity:
+                return np.hstack([h1, h2, v1, v2])
+            else:
+                return np.hstack([h1, h2])
+
         # check if cached version exists
         cached_exists = os.path.exists(get_cached_filepath())
-        
+
         if cached_exists:
             # todo load cached version
             should_process_data = False
+
+            # Load the cached version
+            dataLoaderLogger.info(f"PairedLTADatasetV2 Constructor --> Loading Cached Version from: {get_cached_filepath()}")
+            ifile = bz2.BZ2File(get_cached_filepath(), 'rb')
+            data = pickle.load(ifile)
+            ifile.close()
+            self.instrument1_hvos = torch.tensor(data["instrument1_hvos"], dtype=torch.float32)
+            self.instrument2_hvos = torch.tensor(data["instrument2_hvos"], dtype=torch.float32)
+            self.instrument1and2_hvos = torch.tensor(data["instrument1and2_hvos"], dtype=torch.float32)
+
         else:
             should_process_data = True
-        
+
         if should_process_data:
             # load data
             with bz2.BZ2File(input_inst_dataset_bz2_filepath, 'rb') as f:
                 instrument1s = pickle.load(f)
             with bz2.BZ2File(output_inst_dataset_bz2_filepath, 'rb') as f:
                 instrument2s = pickle.load(f)
-    
+
             # get song ids that are common in both datasets
             song_ids_all = list(set(instrument1s.keys()) & set(instrument2s.keys()))
             song_ids_ = []
-    
-            for song_id in song_ids_all:
+
+            inst1_hvos = []
+            inst2_hvos = []
+            inst1and2_hvos = []
+
+            max_segment_len_bars = max_input_bars + continuation_bars
+
+            for song_id in tqdm(song_ids_all):
                 i1 = instrument1s[song_id]
                 i2 = instrument2s[song_id]
-                # if i1.hvo.shape[0] == i2.hvo.shape[0]:
-                #     song_ids.append(song_id)
-    
+
                 if len(i1.time_signatures) == 1 and len(i2.time_signatures) == 1:
                     if (i1.time_signatures[0].numerator == i2.time_signatures[0].numerator and
                             i1.time_signatures[0].denominator == i2.time_signatures[0].denominator):
                         if i1.time_signatures[0].numerator == 4 and i1.time_signatures[0].denominator == 4:
                             song_ids_.append(song_id)
-                            
-            # process data
-            previous_input_bars, upcoming_input_2_bars, previous_stacked_input_output_bars, upcoming_stacked_input_output_2_bars, previous_output_bars, upcoming_output_2_bars = extract_data(
-                song_ids=song_ids_,
-                instrument1s=instrument1s,
-                instrument2s=instrument2s,
-                input_bars=input_bars,
-                hop_n_bars=hop_n_bars,
-                input_has_velocity=input_has_velocity,
-                input_has_offset=input_has_offsets,
-                down_sampled_ratio=down_sampled_ratio)
 
+                # adjust to the same length
+                n_steps = max(i1.hvo.shape[0], i2.hvo.shape[0])
+                i1.adjust_length(n_steps)
+                i2.adjust_length(n_steps)
 
-            self.previous_input_bars = torch.tensor(previous_input_bars, dtype=torch.float32)
-            self.upcoming_input_2_bars = torch.tensor(upcoming_input_2_bars, dtype=torch.float32)
-            self.previous_stacked_input_output_bars = torch.tensor(previous_stacked_input_output_bars, dtype=torch.float32)
-            self.upcoming_stacked_input_output_2_bars = torch.tensor(upcoming_stacked_input_output_2_bars, dtype=torch.float32)
-            self.previous_output_bars = torch.tensor(previous_output_bars, dtype=torch.float32)
-            self.upcoming_output_2_bars = torch.tensor(upcoming_output_2_bars, dtype=torch.float32)
+                n_bars = n_steps // 16
 
-            self.shifted_upcoming_output_2_bars = torch.zeros_like(self.upcoming_output_2_bars)
-            self.shifted_upcoming_output_2_bars[shift_tgt_by_n_steps:] = self.upcoming_output_2_bars[:-shift_tgt_by_n_steps]
+                segments_starts = [i for i in range(0, n_bars, hop_n_bars)]
+
+                for i in segments_starts:
+                    ts_ = i * 16
+                    te_ = ts_ + max_segment_len_bars * 16
+                    i1_seg = i1.hvo[ts_:te_]
+                    i2_seg = i2.hvo[ts_:te_]
+
+                    if i1_seg.shape[0] == max_segment_len_bars * 16:
+                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, input_has_velocity, input_has_offsets)
+                        inst1_hvos.append(i1_seg)
+                        inst2_hvos.append(i2_seg)
+                        inst1and2_hvos.append(i1_2_stack)
+
+            self.instrument1_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1_hvos])
+            self.instrument2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_hvos])
+            self.instrument1and2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1and2_hvos])
 
             # cache the processed data
             data_to_dump = {
-                "previous_input_bars": self.previous_input_bars.numpy(),
-                "upcoming_input_2_bars": self.upcoming_input_2_bars.numpy(),
-                "previous_stacked_input_output_bars": self.previous_stacked_input_output_bars.numpy(),
-                "upcoming_stacked_input_output_2_bars": self.upcoming_stacked_input_output_2_bars.numpy(),
-                "previous_output_bars": self.previous_output_bars.numpy(),
-                "upcoming_output_2_bars": self.upcoming_output_2_bars.numpy(),
-                "shifted_upcoming_output_2_bars": self.shifted_upcoming_output_2_bars.numpy(),
+                "instrument1_hvos": self.instrument1_hvos.numpy(),
+                "instrument2_hvos": self.instrument2_hvos.numpy(),
+                "instrument1and2_hvos": self.instrument1and2_hvos.numpy(),
             }
 
             ofile = bz2.BZ2File(get_cached_filepath(), 'wb')
             pickle.dump(data_to_dump, ofile)
+
             ofile.close()
 
-        # Load the cached version
-        if cached_exists:
-            dataLoaderLogger.info(f"PairedLTADataset Constructor --> Loading Cached Version from: {get_cached_filepath()}")
-            ifile = bz2.BZ2File(get_cached_filepath(), 'rb')
-            data = pickle.load(ifile)
-            ifile.close()
-            self.previous_input_bars = torch.tensor(data["previous_input_bars"], dtype=torch.float32)
-            self.upcoming_input_2_bars = torch.tensor(data["upcoming_input_2_bars"], dtype=torch.float32)
-            self.previous_stacked_input_output_bars = torch.tensor(data["previous_stacked_input_output_bars"], dtype=torch.float32)
-            self.upcoming_stacked_input_output_2_bars = torch.tensor(data["upcoming_stacked_input_output_2_bars"], dtype=torch.float32)
-            self.previous_output_bars = torch.tensor(data["previous_output_bars"], dtype=torch.float32)
-            self.upcoming_output_2_bars = torch.tensor(data["upcoming_output_2_bars"], dtype=torch.float32)
-            self.shifted_upcoming_output_2_bars = torch.tensor(data["shifted_upcoming_output_2_bars"], dtype=torch.float32)
+            dataLoaderLogger.info(f"Loaded {len(self.instrument1_hvos)} sequences")
 
-        dataLoaderLogger.info(f"Loaded {len(self.previous_input_bars)} sequences")
+    def get_hit_density_histogram(self, n_bins=100):
+        hit_densities = []
+        for i in range(len(self)):
+            _, _, i12 = self[i]
+            hit_densities.append(i12[:, :10].numpy().flatten().mean())
+
+        hit_density_hist, bin_edges, _ = binned_statistic(hit_densities, hit_densities, statistic='count', bins=n_bins)
+        return hit_density_hist, bin_edges
+
+    def show_hit_density_histogram(self, n_bins=100):
+        hit_density_hist, bin_edges = self.get_hit_density_histogram(n_bins)
+        plt.bar(bin_edges[:-1], hit_density_hist, width=bin_edges[1] - bin_edges[0])
+        plt.show()
 
     def __len__(self):
-        return len(self.previous_input_bars)
+        return len(self.instrument1_hvos)
 
     def __getitem__(self, idx):
-        return (self.previous_input_bars[idx],    # 0: previous_input_bars (shape: (input_bars * 16, 3 * features_inst_1))
-                self.upcoming_input_2_bars[idx],  # 1: upcoming_input_2_bars (shape: (2 * 16, 3 * features_inst_1))
-                self.previous_stacked_input_output_bars[idx],  # 2: previous_stacked_input_output_bars (shape: (input_bars * 16, 3 * features_inst_1 + 3 * features_inst_2))
-                self.upcoming_stacked_input_output_2_bars[idx],  # 3: upcoming_stacked_input_output_2_bars (shape: (2 * 16, 3 * features_inst_1 + 3 * features_inst_2))
-                self.previous_output_bars[idx],  # 4: previous_output_bars (shape: (16, 3 * features_inst_2))
-                self.upcoming_output_2_bars[idx],  # 5: upcoming_output_2_bars (shape: (16, 3 * features_inst_2))
-                self.shifted_upcoming_output_2_bars[idx] # 6: shifted_upcoming_output_2_bars (shape: (2 * 16, 3 * features_inst_2))
+        return (self.instrument1_hvos[idx],  # 0: instrument1_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_1))
+                self.instrument2_hvos[idx],  # 1: instrument2_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_2))
+                self.instrument1and2_hvos[idx]  # 2: instrument1and2_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_1 + 3 * features_inst_2))
                 )
-
-
-
-
 
 if __name__ == "__main__":
     # tester
@@ -761,26 +647,43 @@ if __name__ == "__main__":
     #
     # =================================================================================================
     # Load Mega dataset as torch.utils.data.Dataset
-    from data import PairedLTADataset
+    from data import PairedLTADatasetV2
 
     # load dataset as torch.utils.data.Dataset
-    training_dataset = PairedLTADataset(
+    # training_dataset = PairedLTADataset(
+    #     input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_test.bz2",
+    #     output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
+    #     shift_tgt_by_n_steps=1,
+    #     input_bars=32,
+    #     hop_n_bars=2,
+    #     input_has_velocity=True,
+    #     input_has_offsets=True
+    # )
+
+    from data import PairedLTADataset
+
+    test_dataset = PairedLTADataset(
         input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_test.bz2",
         output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
         shift_tgt_by_n_steps=1,
-        input_bars=32,
+        max_input_bars=32,
+        continuation_bars=2,
         hop_n_bars=2,
         input_has_velocity=True,
         input_has_offsets=True
     )
 
-    # # access a batch
-    # previous_input_bars, upcoming_input_2_bars, previous_stacked_input_output_bars, upcoming_stacked_input_output_2_bars, previous_output_bars, upcoming_output_2_bars, shifted_upcoming_output_2_bars = training_dataset[2]
-    #
-    # previous_input_bars.shape
-    # upcoming_input_2_bars.shape
-    # previous_stacked_input_output_bars.shape
-    # upcoming_stacked_input_output_2_bars.shape
-    # previous_output_bars.shape
-    # upcoming_output_2_bars.shape
-    # shifted_upcoming_output_2_bars.shape
+    test_dataset.show_hit_density_histogram(n_bins=100)
+
+    train_dataset = PairedLTADataset(
+        input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_train.bz2",
+        output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
+        shift_tgt_by_n_steps=1,
+        max_input_bars=32,
+        continuation_bars=2,
+        hop_n_bars=2,
+        input_has_velocity=True,
+        input_has_offsets=True
+    )
+
+    train_dataset.show_hit_density_histogram(n_bins=100)

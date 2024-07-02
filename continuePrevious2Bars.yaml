@@ -48,6 +48,8 @@ input_inst_dataset_bz2_filepath_test: "data/lmd/data_bass_groove_test.bz2"
 output_inst_dataset_bz2_filepath_test: "data/lmd/data_drums_full_unsplit.bz2"
 shift_tgt_by_n_steps: 1
 hop_n_bars: 2
+create_subsequences: true
+subsequence_hop_n_bars: 1
 
 upload_to_wandb: false
 save_model_frequency: 20

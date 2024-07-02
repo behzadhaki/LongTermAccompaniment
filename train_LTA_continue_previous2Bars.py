@@ -87,7 +87,10 @@ parser.add_argument("--shift_tgt_by_n_steps", type=int,
                     help="Number of steps to shift the target by", default=1)
 parser.add_argument("--hop_n_bars", type=int,
                     help="Number of bars to hop, if sequence is longer than max_n_bars, this value is used to scroll through and split the sequence", default=2)
-
+parser.add_argument("--create_subsequences", type=bool,
+                    help="Create subsequences from the max len input data", default=False)
+parser.add_argument("--subsequence_hop_n_bars", type=int,
+                    help="Number of bars to hop for the subsequences", default=1)
 # ----------------------- Evaluation Params -----------------------
 # parser.add_argument("--calculate_hit_scores_on_train", type=bool,
 #                     help="Evaluates the quality of the hit models on training set",
@@ -169,7 +172,9 @@ hparams = {
     'input_inst_dataset_bz2_filepath_test': args.input_inst_dataset_bz2_filepath_test if not loaded_via_config_yaml else yml_['input_inst_dataset_bz2_filepath_test'],
     'output_inst_dataset_bz2_filepath_test': args.output_inst_dataset_bz2_filepath_test if not loaded_via_config_yaml else yml_['output_inst_dataset_bz2_filepath_test'],
     'shift_tgt_by_n_steps': args.shift_tgt_by_n_steps if not loaded_via_config_yaml else yml_['shift_tgt_by_n_steps'],
-    'hop_n_bars': args.hop_n_bars if not loaded_via_config_yaml else yml_['hop_n_bars']
+    'hop_n_bars': args.hop_n_bars if not loaded_via_config_yaml else yml_['hop_n_bars'],
+    'create_subsequences': args.create_subsequences if not loaded_via_config_yaml else yml_['create_subsequences'],
+    'subsequence_hop_n_bars': args.subsequence_hop_n_bars if not loaded_via_config_yaml else yml_['subsequence_hop_n_bars']
 }
 
 
@@ -205,7 +210,8 @@ if __name__ == "__main__":
         input_inst_dataset_bz2_filepath=config['input_inst_dataset_bz2_filepath_train'],
         output_inst_dataset_bz2_filepath=config['output_inst_dataset_bz2_filepath_train'],
         shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-        input_bars=config['PerformanceEncoder']['max_n_bars'],
+        max_input_bars=config['PerformanceEncoder']['max_n_bars'],
+        continuation_bars=int(config['DrumContinuator']['max_steps'] // 16),
         hop_n_bars=config['hop_n_bars'],
         input_has_velocity=config['GrooveEncoder']['has_velocity'],
         input_has_offsets=config['GrooveEncoder']['has_offset']
@@ -217,7 +223,8 @@ if __name__ == "__main__":
         input_inst_dataset_bz2_filepath=config['input_inst_dataset_bz2_filepath_test'],
         output_inst_dataset_bz2_filepath=config['output_inst_dataset_bz2_filepath_test'],
         shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-        input_bars=config['PerformanceEncoder']['max_n_bars'],
+        max_input_bars=config['PerformanceEncoder']['max_n_bars'],
+        continuation_bars=int(config['DrumContinuator']['max_steps'] // 16),
         hop_n_bars=config['hop_n_bars'],
         input_has_velocity=config['GrooveEncoder']['has_velocity'],
         input_has_offsets=config['GrooveEncoder']['has_offset']
@@ -249,23 +256,6 @@ if __name__ == "__main__":
     metrics = dict()
     step_ = 0
 
-    # Batch Data IO Extractor
-    def batch_data_extractor(data_, device=config.device):
-        # previous_input_bars = data_[0].to(device) if data_[0].device.type != device else data_[0]
-        upcoming_input_2_bars = data_[1].to(device) if data_[1].device.type != device else data_[1]
-        previous_stacked_input_output_bars = data_[2].to(device) if data_[2].device.type != device else data_[2]
-        # upcoming_stacked_input_output_2_bars = data_[3].to(device) if data_[3].device.type != device else data_[3]
-        previous_output_bars = data_[4].to(device) if data_[4].device.type != device else data_[4]
-        upcoming_output_2_bars = data_[5].to(device) if data_[5].device.type != device else data_[5]
-        # shifted_upcoming_output_2_bars = data_[6].to(device) if data_[6].device.type != device else data_[6]
-
-        enc_src = previous_stacked_input_output_bars        # instrumental and drums stacked together
-        dec_tgt = upcoming_output_2_bars                    # upcoming 2 bars of drums
-        max_steps = upcoming_output_2_bars.shape[1]         # number of steps in the upcoming 2 bars
-        dec_src = previous_output_bars[:, -max_steps:, :]   # previous 2 bars of drums already generated/played
-
-        return enc_src, dec_src, dec_tgt
-
     def create_src_mask(n_bars, max_n_bars):
         # masked items are the ones noted as True
 
@@ -275,10 +265,42 @@ if __name__ == "__main__":
             mask[i, n_bars[i]:] = 1
         return mask
 
+    # Batch Data IO Extractor
+    def batch_data_extractor(data_, in_step_start, in_n_steps, out_step_start, out_n_steps, device=config.device):
+
+        inst_1 = data_[0].to(device) if data_[0].device.type != device else data_[0]
+        inst_2 = data_[1].to(device) if data_[1].device.type != device else data_[1]
+        stacked_inst_12 = data_[2].to(device) if data_[2].device.type != device else data_[2]
+
+        input_solo = inst_1[:, in_step_start:in_step_start + in_n_steps]
+        input_stacked = stacked_inst_12[:, in_step_start:in_step_start + in_n_steps]
+        next_output = inst_2[:, out_step_start:out_step_start + out_n_steps]
+        previous_output = inst_2[:, out_step_start - out_n_steps:out_step_start]
+
+        return input_solo, input_stacked, next_output, previous_output
+
+
     def predict_using_batch_data(batch_data, num_input_bars=None, model_=model_on_device, device=config.device):
         model_.eval()
 
-        enc_src, dec_src, dec_tgt = batch_data_extractor(batch_data, device)
+        in_len = config['PerformanceEncoder']['max_n_bars'] * 16
+        out_len = config['DrumContinuator']['max_steps']
+        in_step_start = 0
+        in_n_steps = in_len
+        out_step_start = in_len
+        out_n_steps = out_len
+
+        input_solo, input_stacked, output, previous_output = batch_data_extractor(
+            data_=batch_data,
+            in_step_start=in_step_start,
+            in_n_steps=in_n_steps,
+            out_step_start=out_step_start,
+            out_n_steps=out_n_steps,
+            device=device
+        )
+
+        enc_src = input_stacked
+        dec_src = previous_output
 
         if num_input_bars is None:
             num_input_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * config['PerformanceEncoder']['max_n_bars']
@@ -294,7 +316,25 @@ if __name__ == "__main__":
     def forward_using_batch_data(batch_data, num_input_bars=None, model_=model_on_device, device=config.device):
         model_.train()
 
-        enc_src, dec_src, dec_tgt = batch_data_extractor(batch_data, device)
+        in_len = config['PerformanceEncoder']['max_n_bars'] * 16
+        out_len = config['DrumContinuator']['max_steps']
+        in_step_start = 0
+        in_n_steps = in_len
+        out_step_start = in_len
+        out_n_steps = out_len
+
+        input_solo, input_stacked, output, previous_output = batch_data_extractor(
+            data_=batch_data,
+            in_step_start=in_step_start,
+            in_n_steps=in_n_steps,
+            out_step_start=out_step_start,
+            out_n_steps=out_n_steps,
+            device=device
+        )
+
+        enc_src = input_stacked
+        dec_src = previous_output
+        dec_tgt = output
 
         if num_input_bars is None:
             num_input_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * config['PerformanceEncoder']['max_n_bars']
