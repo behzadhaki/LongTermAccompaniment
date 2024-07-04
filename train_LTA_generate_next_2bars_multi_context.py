@@ -355,6 +355,43 @@ if __name__ == "__main__":
 
         return h_logits, v_log, o_log, dec_tgt
 
+    def forward_using_batch_data_with_custom_context(batch_data, num_input_bars=None, in_step_start=0, model_=model_on_device, device=config.device):
+        model_.train()
+
+        out_len = config['DrumContinuator']['max_steps']
+
+        if num_input_bars is None:
+            num_input_bars = config['PerformanceEncoder']['max_n_bars']
+        in_len = config['PerformanceEncoder']['max_n_bars'] * 16
+
+        out_step_start = in_step_start + in_len
+        out_n_steps = out_len
+
+        input_solo, input_stacked, output, shifted_output = batch_data_extractor(
+            data_=batch_data,
+            in_step_start=in_step_start,
+            in_n_steps=in_len,
+            out_step_start=out_step_start,
+            out_n_steps=out_n_steps,
+            device=device
+        )
+
+        enc_src = input_stacked
+        dec_src = shifted_output
+        dec_tgt = output
+
+        n_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * num_input_bars
+
+        mask = create_src_mask(n_bars, config['PerformanceEncoder']['max_n_bars']).to(device)
+
+        h_logits, v_log, o_log = model_.forward(
+            src=enc_src,
+            src_key_padding_and_memory_mask=mask,
+            tgt=dec_src)  # passing the previous 2 bars of drums as dec input and trying to predict the upcoming 2 bars
+
+        return h_logits, v_log, o_log, dec_tgt
+
+
     for epoch in range(config.epochs):
         print(f"Epoch {epoch} of {config.epochs}, steps so far {step_}")
 
@@ -366,7 +403,7 @@ if __name__ == "__main__":
 
         train_log_metrics, step_ = train_utils.train_loop(
             train_dataloader=train_dataloader,
-            forward_method=forward_using_batch_data,
+            forward_method=forward_using_batch_data_with_custom_context,
             optimizer=optimizer,
             hit_loss_fn=hit_loss_fn,
             velocity_loss_fn=velocity_loss_fn,
@@ -394,7 +431,7 @@ if __name__ == "__main__":
 
         test_log_metrics = train_utils.test_loop(
             test_dataloader=test_dataloader,
-            forward_method=forward_using_batch_data,
+            forward_method=forward_using_batch_data_with_custom_context,
             hit_loss_fn=hit_loss_fn,
             velocity_loss_fn=velocity_loss_fn,
             offset_loss_fn=offset_loss_fn,

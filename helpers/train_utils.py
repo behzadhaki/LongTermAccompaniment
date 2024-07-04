@@ -237,57 +237,66 @@ def batch_loop(dataloader_, forward_method, hit_loss_fn, velocity_loss_fn,  offs
     # Iterate over batches
     # ------------------------------------------------------------------------------------------
     total_batches = len(dataloader_)
+
+
     for batch_count, (batch_data) in (pbar := tqdm.tqdm(enumerate(dataloader_), total=total_batches)):
+        for bar_start in range(dataloader_.dataset.max_input_bars):
 
-        if optimizer is None:
-            with torch.no_grad():
-                # Set the model to evaluation mode
+            in_step_start = 0
+            num_input_bars = bar_start + 1
+
+            if optimizer is None:
+                with torch.no_grad():
+                    # Set the model to evaluation mode
+                    h_logits, v_logits, o_logits, target_outputs = forward_method(
+                        batch_data=batch_data,
+                        in_step_start=in_step_start,
+                        num_input_bars=num_input_bars,)
+            else:
                 h_logits, v_logits, o_logits, target_outputs = forward_method(batch_data)
-        else:
-            h_logits, v_logits, o_logits, target_outputs = forward_method(batch_data)
 
-        # Prepare targets for loss calculation
-        h_targets, v_targets, o_targets = torch.split(target_outputs, int(target_outputs.shape[2] / 3), 2)
+            # Prepare targets for loss calculation
+            h_targets, v_targets, o_targets = torch.split(target_outputs, int(target_outputs.shape[2] / 3), 2)
 
-        # Compute losses for the model
-        # ---------------------------------------------------------------------------------------
-        batch_loss_h, hit_mask = calculate_hit_loss(
-            hit_logits=h_logits, hit_targets=h_targets, hit_loss_function=hit_loss_fn)
-        batch_loss_h = batch_loss_h * scale_h_loss
+            # Compute losses for the model
+            # ---------------------------------------------------------------------------------------
+            batch_loss_h, hit_mask = calculate_hit_loss(
+                hit_logits=h_logits, hit_targets=h_targets, hit_loss_function=hit_loss_fn)
+            batch_loss_h = batch_loss_h * scale_h_loss
 
-        batch_loss_v = calculate_velocity_loss(
-            vel_logits=v_logits, vel_targets=v_targets, vel_loss_function=velocity_loss_fn, hit_mask=hit_mask) * scale_v_loss
+            batch_loss_v = calculate_velocity_loss(
+                vel_logits=v_logits, vel_targets=v_targets, vel_loss_function=velocity_loss_fn, hit_mask=hit_mask) * scale_v_loss
 
-        batch_loss_o = calculate_offset_loss(
-            offset_logits=o_logits, offset_targets=o_targets, offset_loss_function=offset_loss_fn, hit_mask=hit_mask) * scale_o_loss
+            batch_loss_o = calculate_offset_loss(
+                offset_logits=o_logits, offset_targets=o_targets, offset_loss_function=offset_loss_fn, hit_mask=hit_mask) * scale_o_loss
 
 
-        # Backpropagation and optimization step (if training)
-        # ---------------------------------------------------------------------------------------
-        if optimizer is not None:
-            optimizer.zero_grad()
-            batch_loss_h.backward(retain_graph=True)
-            batch_loss_v.backward(retain_graph=True)
-            batch_loss_o.backward(retain_graph=True)
-            optimizer.step()
+            # Backpropagation and optimization step (if training)
+            # ---------------------------------------------------------------------------------------
+            if optimizer is not None:
+                optimizer.zero_grad()
+                batch_loss_h.backward(retain_graph=True)
+                batch_loss_v.backward(retain_graph=True)
+                batch_loss_o.backward(retain_graph=True)
+                optimizer.step()
 
-        # Update the per batch loss trackers
-        # -----------------------------------------------------------------
-        loss_h.append(batch_loss_h.item())
-        loss_v.append(batch_loss_v.item())
-        loss_o.append(batch_loss_o.item())
+            # Update the per batch loss trackers
+            # -----------------------------------------------------------------
+            loss_h.append(batch_loss_h.item())
+            loss_v.append(batch_loss_v.item())
+            loss_o.append(batch_loss_o.item())
 
-        loss_recon.append(loss_h[-1] + loss_v[-1] + loss_o[-1])
+            loss_recon.append(loss_h[-1] + loss_v[-1] + loss_o[-1])
 
-        # Update the progress bar
-        # ---------------------------------------------------------------------------------------
-        pbar.set_postfix(
-                {
-                    "l_recon": f"{np.mean(loss_recon):.4f}",
-                    "l_h": f"{np.mean(loss_h):.4f}",
-                    "l_v": f"{np.mean(loss_v):.4f}",
-                    "l_o": f"{np.mean(loss_o):.4f}",
-                    })
+            # Update the progress bar
+            # ---------------------------------------------------------------------------------------
+            pbar.set_postfix(
+                    {
+                        "l_recon": f"{np.mean(loss_recon):.4f}",
+                        "l_h": f"{np.mean(loss_h):.4f}",
+                        "l_v": f"{np.mean(loss_v):.4f}",
+                        "l_o": f"{np.mean(loss_o):.4f}",
+                        })
 
         # Increment the step counter
         # ---------------------------------------------------------------------------------------

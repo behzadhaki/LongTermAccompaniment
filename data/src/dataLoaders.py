@@ -497,7 +497,14 @@ class PairedLTADataset(Dataset):
                  continuation_bars=2,
                  hop_n_bars=2,
                  input_has_velocity=True,
-                 input_has_offsets=True):
+                 input_has_offsets=True,
+                 push_all_data_to_cuda=False):
+
+        self.max_input_bars = max_input_bars
+        self.continuation_bars = continuation_bars
+        self.hop_n_bars = hop_n_bars
+        self.input_has_velocity = input_has_velocity
+        self.input_has_offsets = input_has_offsets
 
         def get_cached_filepath():
             dir_ = "cached/TorchDatasets"
@@ -616,6 +623,11 @@ class PairedLTADataset(Dataset):
 
             dataLoaderLogger.info(f"Loaded {len(self.instrument1_hvos)} sequences")
 
+        if push_all_data_to_cuda:
+            self.instrument1_hvos = self.instrument1_hvos.cuda()
+            self.instrument2_hvos = self.instrument2_hvos.cuda()
+            self.instrument1and2_hvos = self.instrument1and2_hvos.cuda()
+
     def get_hit_density_histogram(self, n_bins=100):
         hit_densities = []
         for i in range(len(self)):
@@ -638,6 +650,7 @@ class PairedLTADataset(Dataset):
                 self.instrument2_hvos[idx],  # 1: instrument2_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_2))
                 self.instrument1and2_hvos[idx]  # 2: instrument1and2_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_1 + 3 * features_inst_2))
                 )
+
 
 if __name__ == "__main__":
     # tester

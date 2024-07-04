@@ -91,6 +91,9 @@ parser.add_argument("--create_subsequences", type=bool,
                     help="Create subsequences from the max len input data", default=False)
 parser.add_argument("--subsequence_hop_n_bars", type=int,
                     help="Number of bars to hop for the subsequences", default=1)
+parser.add_argument("--push_all_data_to_cuda", type=bool,
+                    help="Push all data to device", default=False)
+
 # ----------------------- Evaluation Params -----------------------
 # parser.add_argument("--calculate_hit_scores_on_train", type=bool,
 #                     help="Evaluates the quality of the hit models on training set",
@@ -174,7 +177,8 @@ hparams = {
     'shift_tgt_by_n_steps': args.shift_tgt_by_n_steps if not loaded_via_config_yaml else yml_['shift_tgt_by_n_steps'],
     'hop_n_bars': args.hop_n_bars if not loaded_via_config_yaml else yml_['hop_n_bars'],
     'create_subsequences': args.create_subsequences if not loaded_via_config_yaml else yml_['create_subsequences'],
-    'subsequence_hop_n_bars': args.subsequence_hop_n_bars if not loaded_via_config_yaml else yml_['subsequence_hop_n_bars']
+    'subsequence_hop_n_bars': args.subsequence_hop_n_bars if not loaded_via_config_yaml else yml_['subsequence_hop_n_bars'],
+    'push_all_data_to_cuda': args.push_all_data_to_cuda if not loaded_via_config_yaml else yml_['push_all_data_to_cuda']
 }
 
 
@@ -214,7 +218,8 @@ if __name__ == "__main__":
         continuation_bars=int(config['DrumContinuator']['max_steps'] // 16),
         hop_n_bars=config['hop_n_bars'],
         input_has_velocity=config['GrooveEncoder']['has_velocity'],
-        input_has_offsets=config['GrooveEncoder']['has_offset']
+        input_has_offsets=config['GrooveEncoder']['has_offset'],
+        push_all_data_to_cuda=config['push_all_data_to_cuda']
     )
     train_dataloader = DataLoader(training_dataset, batch_size=config.batch_size, shuffle=True)
 
@@ -227,7 +232,8 @@ if __name__ == "__main__":
         continuation_bars=int(config['DrumContinuator']['max_steps'] // 16),
         hop_n_bars=config['hop_n_bars'],
         input_has_velocity=config['GrooveEncoder']['has_velocity'],
-        input_has_offsets=config['GrooveEncoder']['has_offset']
+        input_has_offsets=config['GrooveEncoder']['has_offset'],
+        push_all_data_to_cuda=config['push_all_data_to_cuda']
     )
 
     test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
