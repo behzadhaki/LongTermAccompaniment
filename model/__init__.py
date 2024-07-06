@@ -236,7 +236,7 @@ class SingleFeatureOutputLayer(torch.nn.Module):
 
         eg. from (batch, 32, 128) to (batch, 32, 9)
 
-        for either hits, velocities or offsets
+        for either hits_upcoming_playback, velocities_upcoming_playback or offsets_upcoming_playback
         """
 
     def __init__(self, embedding_size, d_model):

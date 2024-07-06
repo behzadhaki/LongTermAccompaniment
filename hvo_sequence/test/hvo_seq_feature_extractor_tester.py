@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Test Set 1: For these create a four on the floor kick/snare pattern with
     #             hihats steps 2, 6, 10, 14
     #             vels all one except second snare which is 0.5
-    #             offsets zero --> fully quantized
+    #             offsets_upcoming_playback zero --> fully quantized
     #
 
     hits[0::4, 0] = 1
@@ -59,33 +59,33 @@ if __name__ == "__main__":
     assert hvo_seq.get_hit_density_for_voice(2) == 4 / 16   # 4 hats over 16 steps
     assert hvo_seq.get_hit_density_for_voice(3) == 0        # 0 onsets in all other voices
 
-    assert hvo_seq.get_velocity_intensity_mean_stdev_for_voice(0) == (1, 0) # kick velocities are all 1
-    assert hvo_seq.get_velocity_intensity_mean_stdev_for_voice(1) == (0.75, 0.25)  # Snare velocities are [1, 0.5]
-    assert hvo_seq.get_velocity_intensity_mean_stdev_for_voice(0) == (1, 0) # hihat velocities are all 1
+    assert hvo_seq.get_velocity_intensity_mean_stdev_for_voice(0) == (1, 0) # kick velocities_upcoming_playback are all 1
+    assert hvo_seq.get_velocity_intensity_mean_stdev_for_voice(1) == (0.75, 0.25)  # Snare velocities_upcoming_playback are [1, 0.5]
+    assert hvo_seq.get_velocity_intensity_mean_stdev_for_voice(0) == (1, 0) # hihat velocities_upcoming_playback are all 1
 
-    # Set offsets to normal sampled
+    # Set offsets_upcoming_playback to normal sampled
     hvo_seq.hvo = np.concatenate((hits, vels,  hits * (np.random.rand(n_steps, n_voices) - 0.5)), axis=1)
     assert hvo_seq.get_offset_mean_stdev_for_voice(0) != (0, 0)       # kick snare hats shouldnt have mean 0
     assert hvo_seq.get_offset_mean_stdev_for_voice(1) != (0, 0)
     assert hvo_seq.get_offset_mean_stdev_for_voice(2) != (0, 0)
-    assert hvo_seq.get_offset_mean_stdev_for_voice(3) == (0, 0)       # Other instrument offsets are zero
+    assert hvo_seq.get_offset_mean_stdev_for_voice(3) == (0, 0)       # Other instrument offsets_upcoming_playback are zero
 
-    # Restore back to 0 offsets
+    # Restore back to 0 offsets_upcoming_playback
     hvo_seq.hvo = np.concatenate((hits, vels, offs), axis=1)
-    assert hvo_seq.get_offset_mean_stdev_for_voice(0) == (0, 0)       # Now kick ... are also zero offsets
+    assert hvo_seq.get_offset_mean_stdev_for_voice(0) == (0, 0)       # Now kick ... are also zero offsets_upcoming_playback
     assert hvo_seq.get_offset_mean_stdev_for_voice(1) == (0, 0)
     assert hvo_seq.get_offset_mean_stdev_for_voice(2) == (0, 0)
 
     assert hvo_seq.get_lowness_midness_hiness() == (0.4, 0.2, 0.4)    # hiness = number of hi notes over total
-    # if coinciding hits exist at steps within each of three streams, they are counted only once
+    # if coinciding hits_upcoming_playback exist at steps within each of three streams, they are counted only once
     # hence, in such cases sum of lowness midness hiness will be less than one
-    # as these values are calculate relative to total number of hits in the complete multivoice hvo
-    # rather than the total hits in compressed versions in low mid hi streams
+    # as these values are calculate relative to total number of hits_upcoming_playback in the complete multivoice hvo
+    # rather than the total hits_upcoming_playback in compressed versions in low mid hi streams
     hits[0::2, -1] = 1
     hvo_seq.hvo = np.concatenate((hits, vels,  hits * (np.random.rand(n_steps, n_voices) - 0.5)), axis=1)
     assert sum(hvo_seq.get_lowness_midness_hiness()) != 1
 
-    # remove extra voice from previous test and set all velocities to 1
+    # remove extra voice from previous test and set all velocities_upcoming_playback to 1
     hits[:, -1] = 0
     vels = hits * np.ones((n_steps, n_voices))
     hvo_seq.hvo = np.concatenate((hits, vels, offs), axis=1)
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     assert hvo_seq.get_total_weak_to_strong_ratio() == 4/6      # six onsets on beats and 4 on other positions
 
     # Set kick velocity to 1, snare to 0.5 and hat to .25
-    # Set kick offsets to 0, snare to 0.5 and hat to -0.25
+    # Set kick offsets_upcoming_playback to 0, snare to 0.5 and hat to -0.25
     vels[:, 0] = 1
     vels[:, 1] = 0.5
     vels[:, 2] = 0.25
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     # ######################################################################
 
     # Start with a quantized pattern same as before
-    # make sure hits are all on beat positions (no syncopation)
+    # make sure hits_upcoming_playback are all on beat positions (no syncopation)
     hits[0::4, 0] = 1
     hits[4::8, 1] = 1
     hits[0::4, 2] = 1
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     # ######################################################################
 
     # Start with a quantized pattern same as before
-    # make sure hits are all on beat positions (no syncopation)
+    # make sure hits_upcoming_playback are all on beat positions (no syncopation)
     hits[1::4, 0] = 1
     hits[5::8, 1] = 1
     hits[1::4, 2] = 1

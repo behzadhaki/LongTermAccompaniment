@@ -117,7 +117,7 @@ if __name__ == "__main__":
     # ######################################################################
 
     # Start with a quantized pattern same as before
-    # make sure hits are all on beat positions (no syncopation)
+    # make sure hits_upcoming_playback are all on beat positions (no syncopation)
     hits[1::4, 0] = 1
     hits[5::8, 1] = 1
     hits[1::4, 2] = 1

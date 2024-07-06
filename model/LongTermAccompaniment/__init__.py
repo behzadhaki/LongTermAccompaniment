@@ -334,13 +334,14 @@ class LongTermAccompaniment(torch.nn.Module):
 
         # inference only utils
         self.encoded_bars = torch.zeros((1, self.max_n_bars, self.encoder_d_model))
-        self.performance_encoding = torch.zeros((1, self.max_n_bars, self.encoder_d_model))
+        self.performance_memory = torch.zeros((1, self.max_n_bars, self.encoder_d_model))
         self.num_bars_encoded_so_far = 0
         self.max_tgt_steps = self.config['DrumContinuator']['max_steps']
         self.num_tgt_voices = self.config['DrumContinuator']['n_tgt_voices']
-        self.hits = torch.zeros((1, self.max_tgt_steps, 1))
-        self.velocities = torch.zeros((1, self.max_tgt_steps, 1))
-        self.offsets = torch.zeros((1, self.max_tgt_steps, 1))
+        self.hits_upcoming_playback = torch.zeros((1, self.max_tgt_steps, 1))
+        self.velocities_upcoming_playback = torch.zeros((1, self.max_tgt_steps, 1))
+        self.offsets_upcoming_playback = torch.zeros((1, self.max_tgt_steps, 1))
+
 
     def forward(self, src: torch.Tensor, src_key_padding_and_memory_mask: torch.Tensor, tgt: torch.Tensor):
 
@@ -390,6 +391,97 @@ class LongTermAccompaniment(torch.nn.Module):
         return h, v, o, torch.cat((h, v, o), dim=-1)
 
     @torch.jit.export
+    def prime_with_drum_pattern(self, drum_hvo: torch.Tensor):
+        """
+        Primes the model with a drum pattern
+        """
+        if len(drum_hvo.shape) == 2:
+            drum_hvo = drum_hvo.unsqueeze(0)
+
+        if (drum_hvo.shape[1] % 16 != 0):
+            print(f'Error: The input drum pattern must have a multiple of 16 steps. The input has {drum_hvo.shape[1]} steps')
+
+        n_bars = int(drum_hvo.shape[1] // 16)
+        empty_instr_hvo = torch.zeros((1, 16, 3), dtype=torch.float32)
+
+        for i in range(n_bars):
+            self.encode_performed_bar(empty_instr_hvo, drum_hvo[:, i*16: (i+1)*16, :])
+            self.moved_to_next_bar()
+
+    @torch.jit.export
+    def encode_performed_bar(self, instr_hvo: torch.Tensor, drum_hvo: torch.Tensor):
+        """
+        Encodes a single bar of the performance
+        """
+
+        if len(instr_hvo.shape) == 2:
+            instr_hvo = instr_hvo.unsqueeze(0)
+
+        if len(drum_hvo.shape) == 2:
+            drum_hvo = drum_hvo.unsqueeze(0)
+
+        if (instr_hvo.shape[1] != 16) or (drum_hvo.shape[1] != 16):
+            print(f'Error: The input instrumental groove and the drums must have 16 steps (i.e. 1 bar). The input has {instr_hvo.shape[1]} steps')
+
+        in_ = torch.cat((instr_hvo, drum_hvo), dim=-1)
+
+        if self.training:
+            self.eval()
+
+        with torch.no_grad():
+            self.encoded_bars[:, self.num_bars_encoded_so_far, :] = self.GrooveRhythmEncoder.forward(
+                src=in_[:, :16, :])
+
+            mask = torch.zeros((1, self.max_n_bars))
+            mask[0, self.num_bars_encoded_so_far:] = 1
+
+            self.performance_memory = self.PerformanceEncoder.forward(
+                src_rhythm_encodings=self.encoded_bars,
+                src_key_padding_and_memory_mask=mask)
+
+    @torch.jit.export
+    def encode_varying_length_performance(self, instr_hvo: torch.Tensor, drum_hvo: torch.Tensor):
+        n_bars = int(instr_hvo.shape[1] // 16) +1
+        for i in range(n_bars):
+            self.encode_performed_bar(instr_hvo[:, i*16: (i+1)*16, :], drum_hvo[:, i*16: (i+1)*16, :])
+            self.moved_to_next_bar()
+
+    @torch.jit.export
+    def moved_to_next_bar(self):
+        if self.num_bars_encoded_so_far < self.max_n_bars:
+            self.num_bars_encoded_so_far += 1
+        elif self.num_bars_encoded_so_far == self.max_n_bars:
+            self.shift_by_n_bars(1)
+            self.num_bars_encoded_so_far = self.max_n_bars - 1
+
+    @torch.jit.export
+    def get_next_2_bars(self):
+        self.hits_upcoming_playback = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        self.velocities_upcoming_playback = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        self.offsets_upcoming_playback = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+
+        for i in range(self.max_tgt_steps):
+            h_logits, v_logits, o_logits = self.Performance2GrooveDecoder.forward(
+                tgt=torch.cat((self.hits_upcoming_playback, self.velocities_upcoming_playback, self.offsets_upcoming_playback), dim=-1),
+                memory=self.performance_memory[:, :(self.num_bars_encoded_so_far + 1), :])
+
+            step_h = torch.sigmoid(h_logits[:, i, :])
+            # set over the threshold to 1
+            step_v = torch.tanh(v_logits[:, i, :]) + 0.5
+            step_o = torch.tanh(o_logits[:, i, :])
+
+            current_step_hits = torch.where(step_h > 0.5, 1, 0)
+            current_step_velocities = step_v * current_step_hits
+            current_step_offsets = step_o * current_step_hits
+
+            self.hits_upcoming_playback[:, i, :] = current_step_hits
+            self.velocities_upcoming_playback[:, i, :] = current_step_velocities
+            self.offsets_upcoming_playback[:, i, :] = current_step_offsets
+
+        return self.hits_upcoming_playback, self.velocities_upcoming_playback, self.offsets_upcoming_playback, torch.concat((self.hits_upcoming_playback, self.velocities_upcoming_playback, self.offsets_upcoming_playback), dim=-1)
+
+
+    @torch.jit.export
     def reset(self):
         self.encoded_bars = torch.zeros((1, self.max_n_bars, self.encoder_d_model))
         self.num_bars_encoded_so_far = 0
@@ -399,37 +491,38 @@ class LongTermAccompaniment(torch.nn.Module):
         # shift left by n_bars and fill the rest with zeros
         self.encoded_bars[:, :self.max_n_bars - n_bars, :] = self.encoded_bars[:, n_bars:, :]
         self.encoded_bars[:, self.max_n_bars - n_bars:, :] = 0
-        self.num_bars_encoded_so_far -= n_bars
 
     @torch.jit.export
     def encode_next_performed_groove_bar(self, src: torch.Tensor):
+        if (len(src.shape) == 2):
+            src = src.unsqueeze(0)
+
         if (src.shape[1] != 16):
             print(f'Error: The input groove must have 16 steps. The input has {src.shape[1]} steps')
 
         self.encoded_bars[:, self.num_bars_encoded_so_far, :] = self.GrooveRhythmEncoder.forward(
             src=src[:, :16, :])
 
-        self.num_bars_encoded_so_far += 1
-
         # create a mask for the performance encoder
-        mask = torch.zeros((1, self.max_n_bars)).bool()
+        mask = torch.zeros((1, self.max_n_bars))
         mask[0, self.num_bars_encoded_so_far:] = 1
 
-        self.performance_encoding = self.PerformanceEncoder.forward(
+        self.performance_memory = self.PerformanceEncoder.forward(
             src_rhythm_encodings=self.encoded_bars,
             src_key_padding_and_memory_mask=mask)
+
 
     @torch.jit.export
     def get_upcoming_2bars(self, sampling_thresh: float = 0.5):
 
-        self.hits = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
-        self.velocities = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
-        self.offsets = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        self.hits_upcoming_playback = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        self.velocities_upcoming_playback = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        self.offsets_upcoming_playback = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
 
         for i in range(self.max_tgt_steps):
             h_logits, v_logits, o_logits = self.Performance2GrooveDecoder.forward(
-                tgt=torch.cat((self.hits, self.velocities, self.offsets), dim=-1),
-                memory=self.performance_encoding)
+                tgt=torch.cat((self.hits_upcoming_playback, self.velocities_upcoming_playback, self.offsets_upcoming_playback), dim=-1),
+                memory=self.performance_memory)
 
             step_h = torch.sigmoid(h_logits[:, i, :])
             # set over the threshold to 1
@@ -440,11 +533,11 @@ class LongTermAccompaniment(torch.nn.Module):
             current_step_velocities = step_v * current_step_hits
             current_step_offsets =  step_o * current_step_hits
 
-            self.hits[:, i, :] = current_step_hits
-            self.velocities[:, i, :] = current_step_velocities
-            self.offsets[:, i, :] = current_step_offsets
+            self.hits_upcoming_playback[:, i, :] = current_step_hits
+            self.velocities_upcoming_playback[:, i, :] = current_step_velocities
+            self.offsets_upcoming_playback[:, i, :] = current_step_offsets
 
-        return self.hits, self.velocities, self.offsets, torch.concat((self.hits, self.velocities, self.offsets), dim=-1)
+        return self.hits_upcoming_playback, self.velocities_upcoming_playback, self.offsets_upcoming_playback, torch.concat((self.hits_upcoming_playback, self.velocities_upcoming_playback, self.offsets_upcoming_playback), dim=-1)
 
     @torch.jit.ignore
     def save(self, save_path, additional_info=None):

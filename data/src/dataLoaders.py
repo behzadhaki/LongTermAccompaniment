@@ -23,7 +23,7 @@ def get_bin_bounds_for_voice_densities(voice_counts_per_sample: list, num_nonzer
     """
     Calculates the lower and upper bounds for the voice density bins
 
-    category 0: no hits
+    category 0: no hits_upcoming_playback
 
 
     :param voice_counts_per_sample:
@@ -222,7 +222,7 @@ def collect_train_set_info(dataset_setting_json_path_, num_voice_density_bins, n
     for ix, hvo_sample in enumerate(
             tqdm(training_set_,
                  desc="collecting genre tags and Per Voice Density Bins from corresponding full TRAINING set")):
-        hits = hvo_sample.hits
+        hits = hvo_sample.hits_upcoming_playback
         if hits is not None:
             train_set_hvo_files.append(hvo_sample.metadata["full_midi_filename"])
             hits = hvo_sample.hvo[:, :9]
@@ -357,7 +357,7 @@ def down_sample_gmd_dataset(hvo_seq_list, down_sample_ratio):
         for performance, hvo_seqs in performances.items():
             seqs_sorted = sorted(
                 hvo_seqs,
-                key=lambda x: x.hits.sum() / x.get_number_of_active_voices(), reverse=True)
+                key=lambda x: x.hits_upcoming_playback.sum() / x.get_number_of_active_voices(), reverse=True)
             indices = np.linspace(
                 0,
                 len(seqs_sorted) - 1,

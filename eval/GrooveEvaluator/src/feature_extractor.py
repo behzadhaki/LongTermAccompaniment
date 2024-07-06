@@ -282,7 +282,7 @@ class Feature_Extractor_From_HVO_Set:
             voice_key: (np.array([]), np.array([])) for voice_key in drum_voices
         }
 
-        # Compile all the velocities together
+        # Compile all the velocities_upcoming_playback together
         for hvo_seq in self.hvo_dataset:
             v = hvo_seq.get("v")
             o = hvo_seq.get("o")

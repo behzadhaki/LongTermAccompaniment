@@ -132,7 +132,7 @@ def extract_hvo_sequences_dict(gmd_dict, beat_division_factor, drum_mapping, dat
                 drum_mapping=drum_mapping,
                 beat_division_factors=beat_division_factor
             )
-            if _hvo_seq.hits is not None:
+            if _hvo_seq.hits_upcoming_playback is not None:
                 _hvo_seq.metadata.update({"Source": dataset_label})
                 if len(_hvo_seq.time_signatures) == 1 and len(_hvo_seq.tempos) == 1:
                     # get metadata

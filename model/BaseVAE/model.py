@@ -235,7 +235,7 @@ class BaseVAE(torch.nn.Module):
 
         elif sampling_mode == 1:
             for ix, (thres, max_count) in enumerate(zip(voice_thresholds, voice_max_count_allowed)):
-                # sample using probability distribution of hits (_h)
+                # sample using probability distribution of hits_upcoming_playback (_h)
                 voice_probs = _h[:, :, ix]
                 sampled_indices = torch.bernoulli(voice_probs)
                 max_indices = torch.topk(sampled_indices * voice_probs, max_count).indices[0]

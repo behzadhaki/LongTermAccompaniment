@@ -23,7 +23,7 @@ if __name__ == "__main__":
     vels = hits * np.random.rand(16, 9)
     # vels = hit * np.zeros((16, 9))
     offs = hits * (np.random.rand(16, 9) -0.5)
-    # offs = hits * np.zeros_like(hits)
+    # offs = hits_upcoming_playback * np.zeros_like(hits_upcoming_playback)
 
     # Add hvo score to hvo_seq instance
     hvo_bar = np.concatenate((hits, vels, offs), axis=1)

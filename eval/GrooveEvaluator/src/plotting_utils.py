@@ -330,7 +330,7 @@ def multi_voice_velocity_profile_plotter(
         plot_width=1200, plot_height_per_set=400,legend_fnt_size="12px",
 ):
     """
-    Plots all the velocities (with actual timing) for all (or a specified subset) of drum voices across all
+    Plots all the velocities_upcoming_playback (with actual timing) for all (or a specified subset) of drum voices across all
     sets
 
     :param feature_extractors_list:                 A list of all feature_extractor instances created for each set

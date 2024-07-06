@@ -24,13 +24,13 @@ def extract_flat_velocity_profile_time_step_resolution(hvo_seq_list: list[HVO_Se
 
     The profile is extracted as follows:
     - hvo is flattened to a single v and o sequence
-    - velocities and timings are extracted per time step
-    - the Q1, Median and Q3 are extracted for each time step (for both velocities and timings)
+    - velocities_upcoming_playback and timings are extracted per time step
+    - the Q1, Median and Q3 are extracted for each time step (for both velocities_upcoming_playback and timings)
 
     :param hvo_seq_list: list of HVO_Sequence
     :param time_steps: int, default (32)
     :param ignore_non_hits: bool, default (True)
-    :return: (q1, median, q3) for velocities and timings. Each element is a tuple of (timestep+offset, velocity)
+    :return: (q1, median, q3) for velocities_upcoming_playback and timings. Each element is a tuple of (timestep+offset, velocity)
             That is, Q1 = [(real_time q1 at time 0, velocity q1 at time 0), (real_time Q1 at time 1, velocity q1 at time 1), ...]
     """
 
@@ -121,13 +121,13 @@ def extract_flat_velocity_profile(hvo_seq_list: list[HVO_Sequence],
 
     The profile is extracted as follows:
     - hvo is flattened to a single v and o sequence
-    - velocities and timings are extracted per time step
-    - the Q1, Median and Q3 are extracted for each time step (for both velocities and timings)
+    - velocities_upcoming_playback and timings are extracted per time step
+    - the Q1, Median and Q3 are extracted for each time step (for both velocities_upcoming_playback and timings)
 
     :param hvo_seq_list: list of HVO_Sequence
     :param time_steps: int, default (32)
     :param ignore_non_hits: bool, default (True)
-    :return: (time_stamps, q1, median, q3) for velocities and timings. Each element is a tuple of (time, velocity)
+    :return: (time_stamps, q1, median, q3) for velocities_upcoming_playback and timings. Each element is a tuple of (time, velocity)
             That is, Q1 = [(real_time q1 at time 0, velocity q1 at time 0), (real_time Q1 at time 1, velocity q1 at time 1), ...]
             The shape of the output is (time_steps*n_bins_per_step)
     """
@@ -299,11 +299,11 @@ def plot_flat_profile(hvo_seq_list: list[HVO_Sequence],
     p_hit_counts.xaxis.major_label_overrides = {i: str(i) for i in range(0, time_steps, 4)}
     p_hit_normalized.xaxis.major_label_overrides = {i: str(i) for i in range(0, time_steps, 4)}
 
-    # plot histograms of flat hits (totals and normalized)
+    # plot histograms of flat hits_upcoming_playback (totals and normalized)
     # show a large square
     p_hit_counts.scatter([i for i in range(time_steps)], hit_counts_flat, color="black", size=10, legend_label="Flat")
 
-    # plot histograms of full hits (totals and normalized)
+    # plot histograms of full hits_upcoming_playback (totals and normalized)
     times_ = np.zeros((time_steps, 9))
     for t in range(time_steps):
         for i in range(9):

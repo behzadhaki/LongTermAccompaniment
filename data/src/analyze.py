@@ -54,8 +54,8 @@ if __name__ == '__main__':
         #   each loop is one bar ahead of the previous
         # ==================================================================================================================
         NoI = {}       # number of voices in each sample
-        NoH = {}       # number of hits in each sample
-        WH = {}        # weighted hits by number of voices
+        NoH = {}       # number of hits_upcoming_playback in each sample
+        WH = {}        # weighted hits_upcoming_playback by number of voices
 
         for key, items in tqdm(grouped_by_master_id.items(), desc="calculating number of events per bar"):
             for ix, item in enumerate(items):
@@ -64,12 +64,12 @@ if __name__ == '__main__':
                     NoH[key] = []
                     WH[key] = []
                 NoI[key].append(item.get_number_of_active_voices())
-                NoH[key].append(item.hits.sum())
-                WH[key].append(item.hits.sum()/item.get_number_of_active_voices())
+                NoH[key].append(item.hits_upcoming_playback.sum())
+                WH[key].append(item.hits_upcoming_playback.sum() / item.get_number_of_active_voices())
 
-        # sort groups by number of associated weighted hits
+        # sort groups by number of associated weighted hits_upcoming_playback
         grouped_by_master_id_sorted_by_WH = {}
-        for key, items in tqdm(grouped_by_master_id.items(), desc="sorting groups by number of associated weighted hits"):
+        for key, items in tqdm(grouped_by_master_id.items(), desc="sorting groups by number of associated weighted hits_upcoming_playback"):
             grouped_by_master_id_sorted_by_WH[key] = [y for _, y in sorted(zip(WH[key], items), key=lambda tup: tup[0])]
 
 

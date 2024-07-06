@@ -147,7 +147,7 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
     loss_h = hit_loss_function(hit_logits, hit_targets)           # batch, time steps, voices (10 is a scaling factor to match the other losses)
     hit_mask = None
     if hit_loss_function.reduction == 'none':
-        # put more weight on the hits
+        # put more weight on the hits_upcoming_playback
         # hit_mask = (hit_targets < 0.5).float() * 0.5 + 1 # silences weighted almost 10 times more than the misses (in reality, 2 to 1 ratio)
         hit_mask = 1
         loss_h = loss_h * hit_mask

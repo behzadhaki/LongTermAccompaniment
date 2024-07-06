@@ -794,7 +794,7 @@ def map_onsets_to_grid(grid, onset_strength, onset_detect, hop_length, n_fft, sr
 
 def get_hvo_idxs_for_voice(voice_idx, n_voices):
     """
-    Gets index for hits, velocity and offsets for a voice. Used for copying hvo values from a voice from an
+    Gets index for hits_upcoming_playback, velocity and offsets_upcoming_playback for a voice. Used for copying hvo values from a voice from an
     hvo_sequence to another one.
     """
     h_idx = voice_idx

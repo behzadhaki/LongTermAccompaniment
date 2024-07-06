@@ -63,12 +63,12 @@ if hvo_seq_loaded == hvo_seq:
 # ----------------------------------------------------------------
 # -----------           Access Data                 --------------
 # ----------------------------------------------------------------
-hits = hvo_seq.get("h")    # get hits
+hits = hvo_seq.get("h")    # get hits_upcoming_playback
 vels = hvo_seq.get("v")    # get vel
-offsets = hvo_seq.get("o")    # get offsets
+offsets = hvo_seq.get("o")    # get offsets_upcoming_playback
 
-hvo_seq.get("vo")    # get vel with offsets
-hvo_seq.get("hv0")    # get hv with offsets replaced as 0
+hvo_seq.get("vo")    # get vel with offsets_upcoming_playback
+hvo_seq.get("hv0")    # get hv with offsets_upcoming_playback replaced as 0
 hvo_seq.get("ovhhv0")    # use h v o and 0 to create any tensor
 
 

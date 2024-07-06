@@ -1,0 +1,7 @@
+# 1. LTA with changing context prediction
+# 2. LTA dataset w/ Melody Contour
+# 3. Do self-similarity analysis (and control the contributions accordingly)
+
+
+# Divide data by similarity rates (look at last cell of notebook). Then, find the count of samples in each bucket,
+then weight losses accordingly.

@@ -104,7 +104,7 @@ class HVO_Sequence(object):
             "drum_mapping": self.__drum_mapping,
         }
 
-        # find_non_zero_items in hvo, no need to store non-hits
+        # find_non_zero_items in hvo, no need to store non-hits_upcoming_playback
         if self.__hvo is not None:
             event_idx = np.nonzero(self.__hvo)
             event_vals = self.__hvo[event_idx]
@@ -309,9 +309,9 @@ class HVO_Sequence(object):
 
     @property
     def hvo(self):
-        """returns 'synced' hvo np.array, meaning for hits == 0, velocities and offsets are set to 0"""
+        """returns 'synced' hvo np.array, meaning for hits_upcoming_playback == 0, velocities_upcoming_playback and offsets_upcoming_playback are set to 0"""
         if self.__hvo is not None:
-            # Return 'synced' hvo array, meaning for hits == 0, velocities and offsets are set to 0
+            # Return 'synced' hvo array, meaning for hits_upcoming_playback == 0, velocities_upcoming_playback and offsets_upcoming_playback are set to 0
             # i.e. the actual values stored internally will be overridden by 0
             n_voices = int(self.__hvo.shape[1] / 3)
             self.__hvo[:, n_voices:2*n_voices] = self.__hvo[:, n_voices:2*n_voices]*self.__hvo[:, :n_voices]
@@ -429,7 +429,7 @@ class HVO_Sequence(object):
 
     def get_active_voices(self):
         """
-        Returns the indices of the voices that are active (i.e. have any hits) for this HVO
+        Returns the indices of the voices that are active (i.e. have any hits_upcoming_playback) for this HVO
         """
         return np.argwhere(np.sum(self.hits, axis=0) > 0).flatten()
 
@@ -476,21 +476,21 @@ class HVO_Sequence(object):
         hvo_reset = self.copy()     # non_empty copying so that offset and velocity info is kept
         hvo_reset_comp = self.copy()
 
-        # hvo_seq hvo hits 32x9 matrix
+        # hvo_seq hvo hits_upcoming_playback 32x9 matrix
         n_voices = len(self.drum_mapping)
         hits = self.hvo[:, 0:n_voices]
 
-        # uniform probability distribution over nonzero hits
+        # uniform probability distribution over nonzero hits_upcoming_playback
         nonzero_hits_idx = np.nonzero(hits)
         pd = np.random.uniform(size=len(nonzero_hits_idx[0]))
 
         # get threshold from range
         threshold = random.uniform(*threshold_range)
-        # sample hits from probability distribution
+        # sample hits_upcoming_playback from probability distribution
         hits_to_keep_idx = (nonzero_hits_idx[0][pd > threshold], nonzero_hits_idx[1][pd > threshold])
         hits_to_remove_idx = (nonzero_hits_idx[0][~(pd > threshold)], nonzero_hits_idx[1][~(pd > threshold)])
 
-        # remove hits with associated probability distribution (pd) value lower than threshold
+        # remove hits_upcoming_playback with associated probability distribution (pd) value lower than threshold
         hits_to_keep, hits_to_remove = np.zeros(hits.shape), np.zeros(hits.shape)
 
         hits_to_keep[tuple(hits_to_keep_idx)] = 1
@@ -539,20 +539,20 @@ class HVO_Sequence(object):
                 1: set to smallest absolute offset at that time step
                 2: set to largest absolute offset at that time step
                 3: set to offset corresponding to max velocity value at that time step (DEFAULT)
-                4: set to average of offsets at that time step
-                5: set to sum of offsets at that time step
+                4: set to average of offsets_upcoming_playback at that time step
+                5: set to sum of offsets_upcoming_playback at that time step
         velocity_aggregator_modes : int
             Integer to choose which velocity to keep:
                 0: set to max velocity value at that time step and set to 1 if multiple events
                 1: set to max velocity value at that time step (DEFAULT)
                 2: set to velocity of the event with smallest offset
-                3: set to average of velocities at that time step
-                4: set to sum of velocities at that time step
+                3: set to average of velocities_upcoming_playback at that time step
+                4: set to sum of velocities_upcoming_playback at that time step
         get_velocities: bool
-            When set to True the function will return an hvo array with the hits, velocities and
-            offsets of the voice with the hit that has maximum velocity at each time step, when
-            set to False it will do the same operation but only return the hits and offsets, discarding
-            the velocities at the end.
+            When set to True the function will return an hvo array with the hits_upcoming_playback, velocities_upcoming_playback and
+            offsets_upcoming_playback of the voice with the hit that has maximum velocity at each time step, when
+            set to False it will do the same operation but only return the hits_upcoming_playback and offsets_upcoming_playback, discarding
+            the velocities_upcoming_playback at the end.
         reduce_dim: bool
             When set to False the hvo array returned will have the same number of voices as the original
             hvo, with the tapped sequenced in the selected voice_idx and the rest of the voices set to 0.
@@ -651,7 +651,7 @@ class HVO_Sequence(object):
 
     @hits.setter
     def hits(self, hit_array):
-        """setter for hits array
+        """setter for hits_upcoming_playback array
 
         **hit_array: ndarray of dimensions m,n where m is the number of time steps and n the number of drums
         in the current drum mapping (e.g. 9 for the reduced mapping). The values of the array are 1 or 0, indicating whether a
@@ -659,7 +659,7 @@ class HVO_Sequence(object):
         """
         assert self.__is_hit_array_valid(hit_array), "Hit array is invalid! Must be binary and second dimension " \
                                                      "must match the number of voices in drum_mapping"
-        if self.hvo is None:  # if no hvo score is available set velocities to one at hit and offsets to zero
+        if self.hvo is None:  # if no hvo score is available set velocities_upcoming_playback to one at hit and offsets_upcoming_playback to zero
             self.hvo = np.concatenate((hit_array, hit_array, np.zeros_like(hit_array)), axis=1)
         else:
             self.hvo[:, :self.number_of_voices] = hit_array
@@ -671,7 +671,7 @@ class HVO_Sequence(object):
             numbers from 0 to 1 indicating the velocity.
         """
         if not self.is_hvo_score_available():
-            logger.warning("can't get velocities as there is no hvo score previously provided")
+            logger.warning("can't get velocities_upcoming_playback as there is no hvo score previously provided")
         else:
             # Note that the value returned is the internal one - even if a hit is 0 at an index,
             # velocity at that same index might not be 0
@@ -694,7 +694,7 @@ class HVO_Sequence(object):
 
     @velocities.setter
     def velocities(self, vel_array):
-        """setter for velocities array
+        """setter for velocities_upcoming_playback array
 
         **vel_array: ndarray of dimensions m,n where m is the number of time steps and n the number of drums
         in the current drum mapping (e.g. 9 for the reduced mapping).
@@ -703,7 +703,7 @@ class HVO_Sequence(object):
         assert self.__is_vel_array_valid(vel_array), "velocity array is incorrect! either time step mismatch " \
                                                      "or second number of voices mismatch or values outside [0, 1]"
 
-        if self.hvo is None:  # if hvo empty, set corresponding hits to one and offsets to zero
+        if self.hvo is None:  # if hvo empty, set corresponding hits_upcoming_playback to one and offsets_upcoming_playback to zero
             self.hvo = np.concatenate((np.where(vel_array > 0, 1, 0),
                                        vel_array,
                                        np.zeros_like(vel_array)), axis=1)
@@ -717,7 +717,7 @@ class HVO_Sequence(object):
             numbers from -0.5 to 0.5 indicating the offset respect to the beat grid line that each hit is on.
         """
         if not self.is_hvo_score_available():
-            logger.warning("can't get offsets/u_timings as there is no hvo score previously provided")
+            logger.warning("can't get offsets_upcoming_playback/u_timings as there is no hvo score previously provided")
             return None
         else:
             # Note that the value returned is the internal one - even if a hit is 0 at an index,
@@ -728,7 +728,7 @@ class HVO_Sequence(object):
         """checks to see if offset array is continuous (-0.5 to 0.5) and
         second dimension matches number of voices in drum mapping"""
         if self.is_hvo_score_available() is False:
-            logger.warning("hvo field is empty: Can't set offsets without hvo field")
+            logger.warning("hvo field is empty: Can't set offsets_upcoming_playback without hvo field")
             return False
 
         if offset_array.shape[1] != self.number_of_voices:
@@ -743,7 +743,7 @@ class HVO_Sequence(object):
 
     @offsets.setter
     def offsets(self, offset_array):
-        """setter for offsets array
+        """setter for offsets_upcoming_playback array
 
         **offset_array: ndarray of dimensions m,n where m is the number of time steps and n the number of drums
         in the current drum mapping (e.g. 9 for the reduced mapping).
@@ -751,7 +751,7 @@ class HVO_Sequence(object):
         respect to the beat grid line that each hit is on.**
         """
         if not self.is_hvo_score_available():
-            logger.warning("can't set offsets as there is no hvo score previously provided")
+            logger.warning("can't set offsets_upcoming_playback as there is no hvo score previously provided")
         else:
             if self.__is_offset_array_valid(offset_array):
                 self.hvo[:, 2 * self.number_of_voices:] = offset_array
@@ -808,7 +808,7 @@ class HVO_Sequence(object):
     def is_hvo_score_available(self):
         # Checks whether hvo score array is already specified
         if self.hvo is None:
-            # logger.warning(".hvo field is empty: Can't get hits/velocities/offsets without hvo field")
+            # logger.warning(".hvo field is empty: Can't get hits_upcoming_playback/velocities_upcoming_playback/offsets_upcoming_playback without hvo field")
             return False
         else:
             return True
@@ -826,19 +826,19 @@ class HVO_Sequence(object):
     #   -------------------------------------------------------------
     def get(self, hvo_str, offsets_in_ms=False, use_nan_for_non_hits=False):
         """
-        Flexible method to get hits, velocities and offsets in the desired order, or zero arrays with the same
-        dimensions as one of those vectors. The velocities and offsets are synced to the hits, so whenever a hit is 0,
-        velocities and offsets will be 0 as well.
+        Flexible method to get hits_upcoming_playback, velocities_upcoming_playback and offsets_upcoming_playback in the desired order, or zero arrays with the same
+        dimensions as one of those vectors. The velocities_upcoming_playback and offsets_upcoming_playback are synced to the hits_upcoming_playback, so whenever a hit is 0,
+        velocities_upcoming_playback and offsets_upcoming_playback will be 0 as well.
 
         Parameters
         ----------
         hvo_str: str
             String formed with the characters 'h', 'v', 'o' and '0' in any order. It's not necessary to use all the
-            characters, they can be repeated. E.g. 'ov', will return the offsets and velocities, 'h0h' will return
-            the hits, a 0-vector and the hits again, again and '000' will return a hvo-sized 0 matrix.
+            characters, they can be repeated. E.g. 'ov', will return the offsets_upcoming_playback and velocities_upcoming_playback, 'h0h' will return
+            the hits_upcoming_playback, a 0-vector and the hits_upcoming_playback again, again and '000' will return a hvo-sized 0 matrix.
 
         offsets_in_ms: bool
-            If true, the queried offsets will be provided in ms deviations from grid, otherwise, will be
+            If true, the queried offsets_upcoming_playback will be provided in ms deviations from grid, otherwise, will be
             provided in terms of ratios
 
         use_nan_for_non_hits: bool
@@ -857,7 +857,7 @@ class HVO_Sequence(object):
         o = copy.deepcopy(o)
         zero = np.zeros_like(h)
 
-        # replace velocities and offsets with no associated hit to np.nan when use_nan_for_non_hits is set to True
+        # replace velocities_upcoming_playback and offsets_upcoming_playback with no associated hit to np.nan when use_nan_for_non_hits is set to True
         if use_nan_for_non_hits is not False:
             v[h == 0] = -1000000
             v = np.where(v == -1000000, np.nan, v)
@@ -877,14 +877,14 @@ class HVO_Sequence(object):
         """
         similar to self.get() except that it maps the extracted hvo sequence to a provided target mapping
 
-        if multiple velocities/offsets are to be grouped together, only the position of the loudest velocity is used
+        if multiple velocities_upcoming_playback/offsets_upcoming_playback are to be grouped together, only the position of the loudest velocity is used
 
         :param hvo_str: str
             String formed with the characters 'h', 'v', 'o' and '0' in any order. It's not necessary to use all the
-            characters AND they can be repeated. E.g. 'ov', will return the offsets and velocities, 'h0h' will return
-            the hits, a 0-vector and the hits again, again and '000' will return a hvo-sized 0 matrix.
+            characters AND they can be repeated. E.g. 'ov', will return the offsets_upcoming_playback and velocities_upcoming_playback, 'h0h' will return
+            the hits_upcoming_playback, a 0-vector and the hits_upcoming_playback again, again and '000' will return a hvo-sized 0 matrix.
         :param tgt_drum_mapping:        Alternative mapping to use
-        :param offsets_in_ms:           True/False, specifies if offsets should be in ms
+        :param offsets_in_ms:           True/False, specifies if offsets_upcoming_playback should be in ms
         :param use_nan_for_non_hits:    True/False, specifies if np.nan should be used instead of 0 wherever a hit is
                                         missing
         :return:
@@ -953,7 +953,7 @@ class HVO_Sequence(object):
                     v_tgt[:, ix] = v_src[:, voice_group][range(len(v_max_indices)), v_max_indices]
                     o_tgt[:, ix] = o_src[:, voice_group][range(len(v_max_indices)), v_max_indices]
 
-        # replace vels and offsets with no associated hit to np.nan if use_nan_for_non_hits set to True
+        # replace vels and offsets_upcoming_playback with no associated hit to np.nan if use_nan_for_non_hits set to True
         if use_nan_for_non_hits is not False and ("v" in hvo_str or "o" in hvo_str):
             v_tgt[h_tgt == 0] = -1000000
             v_tgt = np.where(v_tgt == -1000000, np.nan, v_tgt)
@@ -973,19 +973,19 @@ class HVO_Sequence(object):
         """
         Gets the offset portion of hvo and converts the values to ms using the associated grid
 
-        :return:    the offsets in hvo tensor in ms
+        :return:    the offsets_upcoming_playback in hvo tensor in ms
         """
         convertible = all([self.is_tempos_available(),
                            self.is_time_signatures_available()])
 
         if not convertible:
-            logger.warning("Above fields need to be provided so as to get the offsets in ms")
+            logger.warning("Above fields need to be provided so as to get the offsets_upcoming_playback in ms")
             return None
 
         # get the number of allowed drum voices
         n_voices = len(self.__drum_mapping.keys())
 
-        # create an empty offsets array
+        # create an empty offsets_upcoming_playback array
         offsets_ratio = self.__hvo[:, 2*n_voices:]
         neg_offsets = np.where(offsets_ratio < 0, offsets_ratio, 0)
         pos_offsets = np.where(offsets_ratio > 0, offsets_ratio, 0)
@@ -1002,7 +1002,7 @@ class HVO_Sequence(object):
         pos_bar_durations[-1] = inter_grid_distances[-1]
         pos_bar_durations[:-1] = inter_grid_distances
 
-        # Scale offsets by grid durations
+        # Scale offsets_upcoming_playback by grid durations
         neg_offsets = neg_offsets*neg_bar_durations[:neg_offsets.shape[0], None]
         pos_offsets = pos_offsets * pos_bar_durations[:pos_offsets.shape[0], None]
 
@@ -1189,7 +1189,7 @@ class HVO_Sequence(object):
         # get the number of allowed drum voices
         n_voices = len(self.__drum_mapping.keys())
 
-        # find nonzero hits tensor of [[position, drum_voice]]
+        # find nonzero hits_upcoming_playback tensor of [[position, drum_voice]]
         pos_instrument_tensors = np.transpose(np.nonzero(self.__hvo[:, :n_voices]))
 
         # Set note duration as 1/2 of the smallest grid distance
@@ -1814,8 +1814,8 @@ class HVO_Sequence(object):
         return np.count_nonzero(self.hits[:, voice_ix]) / self.number_of_steps
 
     def get_velocity_intensity_mean_stdev_for_voice(self, voice_ix):
-        """Calculates mean and std of velocities for a single voice.
-        first gets all non-zero hits. then divide by number of hits"""
+        """Calculates mean and std of velocities_upcoming_playback for a single voice.
+        first gets all non-zero hits_upcoming_playback. then divide by number of hits_upcoming_playback"""
         if self.is_ready_for_use() is False:
             return None
         v = self.get("v", use_nan_for_non_hits=True)[:, voice_ix]
@@ -1825,8 +1825,8 @@ class HVO_Sequence(object):
             return np.nanmean(v), np.nanstd(v)
 
     def get_offset_mean_stdev_for_voice(self, voice_ix, offsets_in_ms=False):
-        """Calculates mean and std of offsets for a single voice.
-        first gets all non-zero hits. then divide by number of hits"""
+        """Calculates mean and std of offsets_upcoming_playback for a single voice.
+        first gets all non-zero hits_upcoming_playback. then divide by number of hits_upcoming_playback"""
         if self.is_ready_for_use() is False:
             return None
         o = self.get("o", offsets_in_ms=offsets_in_ms, use_nan_for_non_hits=True)[:, voice_ix]
@@ -1889,7 +1889,7 @@ class HVO_Sequence(object):
         """Get average loudness for any single part or group of parts. Will return 1 for binary loop,
         otherwise calculate based on velocity mode chosen (transform or regular)"""
 
-        # first get all non-zero hits. then divide by number of hits
+        # first get all non-zero hits_upcoming_playback. then divide by number of hits_upcoming_playback
         if self.is_ready_for_use() is False:
             return np.NaN, np.NaN
         v = self.get("v", use_nan_for_non_hits=True)
@@ -1902,7 +1902,7 @@ class HVO_Sequence(object):
         """Get average loudness for any single part or group of parts. Will return 1 for binary loop, otherwise calculate
         based on velocity mode chosen (transform or regular)"""
 
-        # first get all non-zero hits. then divide by number of hits
+        # first get all non-zero hits_upcoming_playback. then divide by number of hits_upcoming_playback
         if self.is_ready_for_use() is False:
             return np.NaN, np.NaN
         o = self.get("o", offsets_in_ms=offsets_in_ms, use_nan_for_non_hits=True)
@@ -1970,7 +1970,7 @@ class HVO_Sequence(object):
 
         max_syncopation = 30.0
 
-        # Get hits score reduced to low mid high groups
+        # Get hits_upcoming_playback score reduced to low mid high groups
         lmh_hits = self.get_with_different_drum_mapping("h", tgt_drum_mapping=low_mid_hi_drum_map)
         low = lmh_hits[:, 0]
         mid = lmh_hits[:, 1]
@@ -1997,7 +1997,7 @@ class HVO_Sequence(object):
         # todo: error of size mismatch here
         metrical_profile = WITEK_SYNCOPATION_METRICAL_PROFILE_4_4_16th_NOTE
 
-        # Get hits score reduced to low mid high groups
+        # Get hits_upcoming_playback score reduced to low mid high groups
         lmh_hits = self.get_with_different_drum_mapping("h", tgt_drum_mapping=low_mid_hi_drum_map)
 
         lowsync = get_monophonic_syncopation(lmh_hits[:, 0], metrical_profile)
@@ -2045,10 +2045,10 @@ class HVO_Sequence(object):
 
         :param hvo_str: str
             String formed with the characters 'h', 'v', 'o' and '0' in any order. It's not necessary to use all of the
-            characters and they can be repeated. E.g. 'ov', will return the offsets and velocities, 'h0h'
+            characters and they can be repeated. E.g. 'ov', will return the offsets_upcoming_playback and velocities_upcoming_playback, 'h0h'
             set offsets_in_ms to True if 'o' should be in milliseconds
         :param offsets_in_ms: bool
-            If True, the offsets will be returned in milliseconds instead of steps
+            If True, the offsets_upcoming_playback will be returned in milliseconds instead of steps
         :return:
             autocorrelation curve for all parts summed.
         """
@@ -2229,16 +2229,16 @@ class HVO_Sequence(object):
             return swingness
 
         elif mode == 1:
-            # Get offsets at required swing steps
+            # Get offsets_upcoming_playback at required swing steps
             microtiming_matrix = self.get("o", offsets_in_ms=False, use_nan_for_non_hits=False)
 
-            # look at offsets at 2nd, 4th steps in each beat (corresponding to  grid line indices 1, 3, 5, 7, ... )
+            # look at offsets_upcoming_playback at 2nd, 4th steps in each beat (corresponding to  grid line indices 1, 3, 5, 7, ... )
             offset_at_swing_steps = microtiming_matrix[1::2, :]
 
-            # get average of positive offsets at swing steps
+            # get average of positive offsets_upcoming_playback at swing steps
             offset_at_swing_steps = offset_at_swing_steps[offset_at_swing_steps > 0]
 
-            # return mean of swung offsets or zero if none
+            # return mean of swung offsets_upcoming_playback or zero if none
             # max swing should be 1 (but max offset is 0.5) hence mult by 2
             return offset_at_swing_steps.mean()*2 if offset_at_swing_steps.size > 0 else 0
 
@@ -2312,7 +2312,7 @@ class HVO_Sequence(object):
                                            hihat_key_in_drum_mapping="HH_CLOSED",
                                            threshold=12.0):
         """ Same implementation as groovetoolbox
-        :param microtiming_matrix:                  offsets matrix for maximum of 1 bar in 4/4
+        :param microtiming_matrix:                  offsets_upcoming_playback matrix for maximum of 1 bar in 4/4
         :param kick_key_in_drum_mapping:
         :param snare_key_in_drum_mapping:
         :param hihat_key_in_drum_mapping:
@@ -2574,13 +2574,13 @@ class HVO_Sequence(object):
 
     def is_performance(self, velocity_threshold=0.3, offset_threshold=0.1):
         """
-        By looking at the unique velocities and offsets, approximate whether the hvo_sequence comes from a
+        By looking at the unique velocities_upcoming_playback and offsets_upcoming_playback, approximate whether the hvo_sequence comes from a
         performance MIDI file or not
 
-        :param velocity_threshold:      threshold from 0 to 1 indicating what percentage of the velocities different
+        :param velocity_threshold:      threshold from 0 to 1 indicating what percentage of the velocities_upcoming_playback different
                                         from 0 and 1 must be unique to consider the sequence to be performance.
 
-        :param offset_threshold:        threshold from 0 to 1 indicating what percentage of the offsets different
+        :param offset_threshold:        threshold from 0 to 1 indicating what percentage of the offsets_upcoming_playback different
                                         from 0 must be unique to consider the sequence to be performance.
         :return:
             is_performance:             boolean value returning whether the sequence is or not from a performance
@@ -2644,10 +2644,10 @@ class HVO_Sequence(object):
         elif isinstance(cymbal_voice_idx, list):
             ci = cymbal_voice_idx
 
-        # get hits
+        # get hits_upcoming_playback
         hits = self.get("h")
 
-        # get kick, snare, cymbals hits
+        # get kick, snare, cymbals hits_upcoming_playback
         kick_hits = hits[:, ki]
         snare_hits = hits[:, si]
         cymbal_hits = hits[:, ci]

@@ -178,11 +178,11 @@ def map_voice_densities_to_categorical(voice_counts, lower_bounds, upper_bounds)
 out_hits = training_dataset.output_grooves[:, :, :9]
 
 import torch
-hvo_hits = [hvo_.hits for hvo_ in training_dataset.hvo_sequences]
+hvo_hits = [hvo_.hits_upcoming_playback for hvo_ in training_dataset.hvo_sequences]
 hvo_hits = torch.tensor(hvo_hits)
 
 total_hits_per_sample = hvo_hits.flatten(start_dim=1).sum(dim=1)
-hvo_sums = [hvo_.hits.sum() for hvo_ in training_dataset.hvo_sequences]
+hvo_sums = [hvo_.hits_upcoming_playback.sum() for hvo_ in training_dataset.hvo_sequences]
 hvo_sums = torch.tensor(hvo_sums)
 torch.all((hvo_sums == total_hits_per_sample))
 hvo_sums
@@ -222,7 +222,7 @@ in_hits_sum
 ratio = (out_hits_sum / in_hits_sum).numpy()
 average_vels = (out_vels_sum / in_hits_sum).numpy()
 ratio.shape
-# plot hits sum (x) vs average velocity (y), use color associated density bin
+# plot hits_upcoming_playback sum (x) vs average velocity (y), use color associated density bin
 import matplotlib.pyplot as plt
 colors = plt.cm.get_cmap('tab10', 10)
 plt.scatter(out_hits_sum.numpy(), average_vels, c=density_bins, cmap=colors, alpha=0.5, marker='o', s=1)
