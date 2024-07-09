@@ -29,7 +29,8 @@ parser.add_argument("--ge_d_model", type=int, help="GrooveEncoder's d_model", de
 parser.add_argument("--ge_d_ff", type=int, help="GrooveEncoder's d_ff", default=512)
 parser.add_argument("--ge_n_layers", type=int, help="GrooveEncoder's n_layers", default=3)
 parser.add_argument("--ge_n_heads", type=int, help="GrooveEncoder's n_heads", default=4)
-parser.add_argument("--ge_n_src_voices", type=int, help="GrooveEncoder's n_src_voices", default=1)
+parser.add_argument("--ge_n_src1_voices", type=int, help="GrooveEncoder's n_src1_voices", default=1)
+parser.add_argument("--ge_n_src2_voices", type=int, help="GrooveEncoder's n_src2_voices - n_src2 is usually the same as target", default=9)
 parser.add_argument("--ge_nbars_per_segment", type=int, help="GrooveEncoder's nbars_per_segment: specifies how many bars are encoded using the groove encoder model", default=1)
 parser.add_argument("--ge_has_velocity", type=bool, help="GrooveEncoder's has_velocity", default=True)
 parser.add_argument("--ge_has_offset", type=bool, help="GrooveEncoder's has_offset", default=True)
@@ -71,7 +72,7 @@ parser.add_argument("--scale_o_loss", type=float, help="Scale for offset loss", 
 parser.add_argument("--optimizer", type=str, help="Optimizer to use", default="adam")
 parser.add_argument("--lr", type=float, help="Learning Rate", default=0.0001)
 parser.add_argument("--batch_size", type=int, help="Batch Size", default=32)
-parser.add_argument("--epochs", type=int, help="Number of epochs", default=100)
+parser.add_argument("--epochs", type=int, help="Number of epochs", default=1000)
 parser.add_argument("--device", type=str, help="Device to run the model on", default="cuda" if torch.cuda.is_available() else "cpu")
 
 # ----------------------- Data Parameters -----------------------
@@ -87,10 +88,6 @@ parser.add_argument("--shift_tgt_by_n_steps", type=int,
                     help="Number of steps to shift the target by", default=1)
 parser.add_argument("--hop_n_bars", type=int,
                     help="Number of bars to hop, if sequence is longer than max_n_bars, this value is used to scroll through and split the sequence", default=2)
-parser.add_argument("--create_subsequences", type=bool,
-                    help="Create subsequences from the max len input data", default=False)
-parser.add_argument("--subsequence_hop_n_bars", type=int,
-                    help="Number of bars to hop for the subsequences", default=1)
 parser.add_argument("--push_all_data_to_cuda", type=bool,
                     help="Push all data to device", default=True)
 
@@ -108,8 +105,8 @@ parser.add_argument("--push_all_data_to_cuda", type=bool,
 # ----------------------- Misc Params -----------------------
 parser.add_argument("--save_model", type=bool, help="Save model", default=True)
 parser.add_argument("--save_model_dir", type=str, help="Path to save the model", default="misc/LTA")
-parser.add_argument("--upload_to_wandb", type=bool, help="Upload to wandb", default=False)
-parser.add_argument("--save_model_frequency", type=int, help="Save model every n epochs", default=1)
+parser.add_argument("--upload_to_wandb", type=bool, help="Upload to wandb", default=True)
+parser.add_argument("--save_model_frequency", type=int, help="Save model every n epochs", default=5)
 
 args, unknown = parser.parse_known_args()
 if unknown:
@@ -137,7 +134,8 @@ hparams = {
         'dim_feedforward': args.ge_d_ff if not loaded_via_config_yaml else yml_['ge_d_ff'],
         'n_layers': args.ge_n_layers if not loaded_via_config_yaml else yml_['ge_n_layers'],
         'nhead': args.ge_n_heads if not loaded_via_config_yaml else yml_['ge_n_heads'],
-        'n_src_voices': args.ge_n_src_voices if not loaded_via_config_yaml else yml_['ge_n_src_voices'],
+        'n_src1_voices': args.ge_n_src1_voices if not loaded_via_config_yaml else yml_['ge_n_src1_voices'],
+        'n_src2_voices': args.ge_n_src2_voices if not loaded_via_config_yaml else yml_['ge_n_src2_voices'],
         'n_bars': args.ge_nbars_per_segment if not loaded_via_config_yaml else yml_['ge_nbars_per_segment'],
         'has_velocity': args.ge_has_velocity if not loaded_via_config_yaml else yml_['ge_has_velocity'],
         'has_offset': args.ge_has_offset if not loaded_via_config_yaml else yml_['ge_has_offset'],
@@ -176,9 +174,7 @@ hparams = {
     'output_inst_dataset_bz2_filepath_test': args.output_inst_dataset_bz2_filepath_test if not loaded_via_config_yaml else yml_['output_inst_dataset_bz2_filepath_test'],
     'shift_tgt_by_n_steps': args.shift_tgt_by_n_steps if not loaded_via_config_yaml else yml_['shift_tgt_by_n_steps'],
     'hop_n_bars': args.hop_n_bars if not loaded_via_config_yaml else yml_['hop_n_bars'],
-    'create_subsequences': args.create_subsequences if not loaded_via_config_yaml else yml_['create_subsequences'],
-    'subsequence_hop_n_bars': args.subsequence_hop_n_bars if not loaded_via_config_yaml else yml_['subsequence_hop_n_bars'],
-    'push_all_data_to_cuda': args.push_all_data_to_cuda if not loaded_via_config_yaml else yml_['push_all_data_to_cuda']
+    'push_all_data_to_cuda': args.push_all_data_to_cuda if not loaded_via_config_yaml else yml_['push_all_data_to_cuda'],
 }
 
 
@@ -190,13 +186,13 @@ if __name__ == "__main__":
         config=hparams,  # either from config file or CLI specified hyperparameters
         project="LTA_PreviousBarContinuator",
         entity="behzadhaki",  # saves in the mmil_vae_cntd team account
-        settings=wandb.Settings(code_dir="train_LTA_continue_previous2Bars.py"),
+        settings=wandb.Settings(code_dir="scripts_archived/train_LTA_generate_next_2bars.py"),
     )
 
     if loaded_via_config_yaml:
         model_code = wandb.Artifact("train_code_and_config", type="train_code_and_config")
         model_code.add_file(args.config)
-        model_code.add_file("train_LTA_continue_previous2Bars.py")
+        model_code.add_file("train_LTA_generate_next_2bars.py")
         wandb.run.log_artifact(model_code)
 
     # Reset config to wandb.config (in case of sweeping with YAML necessary)
@@ -266,7 +262,7 @@ if __name__ == "__main__":
         # masked items are the ones noted as True
 
         batch_size = n_bars.shape[0]
-        mask = torch.zeros((batch_size, max_n_bars)).bool()
+        mask = torch.zeros((batch_size, max_n_bars), dtype=torch.bool)
         for i in range(batch_size):
             mask[i, n_bars[i]:] = 1
         return mask
@@ -351,7 +347,7 @@ if __name__ == "__main__":
         h_logits, v_log, o_log = model_.forward(
             src=enc_src,
             src_key_padding_and_memory_mask=mask,
-            tgt=dec_src) # passing the previous 2 bars of drums as dec input and trying to predict the upcoming 2 bars
+            shifted_tgt=dec_src) # passing the previous 2 bars of drums as dec input and trying to predict the upcoming 2 bars
 
         return h_logits, v_log, o_log, dec_tgt
 

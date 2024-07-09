@@ -1,0 +1,59 @@
+ge_d_model: 128
+ge_d_ff: 128
+ge_n_layers: 4
+ge_n_heads: 4
+ge_n_src_voices: 10
+ge_nbars_per_segment: 1
+ge_has_velocity: true
+ge_has_offset: true
+
+ge_dropout: 0.1
+ge_velocity_dropout: 0.1
+ge_offset_dropout: 0.1
+ge_positional_dropout: 0.1
+
+pe_d_model: 128
+pe_d_ff: 128
+pe_n_layers: 4
+pe_n_heads: 4
+pe_max_n_bars: 32
+
+pe_dropout: 0.1
+pe_positional_dropout: 0.1
+
+dc_d_model: 128
+dc_d_ff: 128
+dc_n_layers: 4
+dc_n_heads: 4
+dc_n_tgt_voices: 9
+dc_max_steps: 32
+
+dc_dropout: 0.1
+dc_velocity_dropout: 0.1
+dc_offset_dropout: 0.1
+dc_positional_dropout: 0.1
+
+scale_h_loss: 0.25
+scale_v_loss: 1
+scale_o_loss: 1
+optimizer: "adam"
+lr: 0.00006369948608989782
+batch_size: 64
+epochs: 100
+device: "cuda"
+
+input_inst_dataset_bz2_filepath_train: "data/lmd/data_bass_groove_train.bz2"
+output_inst_dataset_bz2_filepath_train: "data/lmd/data_drums_full_unsplit.bz2"
+input_inst_dataset_bz2_filepath_test: "data/lmd/data_bass_groove_test.bz2"
+output_inst_dataset_bz2_filepath_test: "data/lmd/data_drums_full_unsplit.bz2"
+shift_tgt_by_n_steps: 1
+hop_n_bars: 2
+create_subsequences: true
+subsequence_hop_n_bars: 1
+
+upload_to_wandb: false
+save_model_frequency: 20
+
+
+
+

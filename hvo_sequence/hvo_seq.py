@@ -911,7 +911,7 @@ class HVO_Sequence(object):
                                     low. mid. hi Toms are to be mapped to the same group (toms)
 
             """
-            # Find the corresponding index in tgt mapping for each element in Base map
+            # Find the corresponding index in shifted_tgt mapping for each element in Base map
             src_ix_to_tgt_ix_map = np.array([])
             for src_voice_ix, src_voice_midi_list in enumerate(src_map.values()):
                 corresponding_tgt_indices = []
@@ -928,7 +928,7 @@ class HVO_Sequence(object):
 
             return grouped_voices_
 
-        # Find Base indices in src_map corresponding to tgt
+        # Find Base indices in src_map corresponding to shifted_tgt
         grouped_voices = get_tgt_map_index_for_src_map(self.drum_mapping, tgt_drum_mapping)
 
         # Get non-reduced score with the existing mapping
@@ -944,7 +944,7 @@ class HVO_Sequence(object):
         if "0" in hvo_str:
             zero_tgt = np.zeros((h_src.shape[0], len(tgt_drum_mapping.keys())))
 
-        # use the groups of indices in grouped_voices to map the Base sequences to tgt sequence
+        # use the groups of indices in grouped_voices to map the Base sequences to shifted_tgt sequence
         for ix, voice_group in enumerate(grouped_voices):
             if len(voice_group) > 0:
                 h_tgt[:, ix] = np.any(h_src[:, voice_group], axis=1)

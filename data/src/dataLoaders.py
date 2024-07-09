@@ -239,7 +239,6 @@ def collect_train_set_info(dataset_setting_json_path_, num_voice_density_bins, n
                 train_set_tom_counts.append(hits[:, 4:7].sum())
                 train_set_cymbal_counts.append(hits[:, 7:].sum())
 
-
     # get pervoice density bins
     return (get_bin_bounds_for_voice_densities(train_set_kick_counts, num_voice_density_bins),
             get_bin_bounds_for_voice_densities(train_set_snare_counts, num_voice_density_bins),
@@ -249,7 +248,6 @@ def collect_train_set_info(dataset_setting_json_path_, num_voice_density_bins, n
             None,
             (min(train_set_complexities), max(train_set_complexities)), sorted(train_set_genre_tags),
             train_set_total_hits, train_set_hvo_files)
-
 
 
 # ---------------------------------------------------------------------------------------------- #
@@ -681,7 +679,7 @@ if __name__ == "__main__":
         shift_tgt_by_n_steps=1,
         max_input_bars=32,
         continuation_bars=2,
-        hop_n_bars=2,
+        hop_n_bars=1,
         input_has_velocity=True,
         input_has_offsets=True
     )
@@ -694,7 +692,7 @@ if __name__ == "__main__":
         shift_tgt_by_n_steps=1,
         max_input_bars=32,
         continuation_bars=2,
-        hop_n_bars=2,
+        hop_n_bars=1,
         input_has_velocity=True,
         input_has_offsets=True
     )

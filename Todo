@@ -1,7 +1,12 @@
-# 1. LTA with changing context prediction
-# 2. LTA dataset w/ Melody Contour
-# 3. Do self-similarity analysis (and control the contributions accordingly)
+0. In first segment, add the subsequences
+
+1. Loss based on data: Do self-similarity analysis (and control the contributions accordingly)
+# how much variation there is upto last 2bar seg?
+# how much is the next 2bar similar to the previous 2bar segments?
 
 
-# Divide data by similarity rates (look at last cell of notebook). Then, find the count of samples in each bucket,
-then weight losses accordingly.
+2. Serialize and VST deploy
+
+3. Add melody contour to the dataset
+
+

@@ -314,6 +314,12 @@ def load_model(model_path, model_class, params_dict=None, is_evaluating=True, de
         with open(params_dict, 'r') as f:
             params_dict = json.load(f)
 
+    if 'n_src_voices' in params_dict['GrooveEncoder']:
+        # remove
+        params_dict['GrooveEncoder'].pop('n_src_voices')
+        params_dict['GrooveEncoder']['n_src1_voices'] = 1
+        params_dict['GrooveEncoder']['n_src2_voices'] = 9
+
     model = model_class(params_dict)
     model.load_state_dict(loaded_dict["model_state_dict"])
     if is_evaluating:
