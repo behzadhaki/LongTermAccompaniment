@@ -51,7 +51,8 @@ class PositionalEncoding(torch.nn.Module):
         Examples:
             >>> output = pos_encoder(x)
         """
-        x = x + self.pe[:x.size(0), :]
+
+        x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
 
 
@@ -74,7 +75,7 @@ class InputGrooveRhythmLayer(torch.nn.Module):
         self.HitsReLU = torch.nn.ReLU()
         self.VelocitiesReLU = torch.nn.ReLU()
         self.OffsetsReLU = torch.nn.ReLU()
-        self.PositionalEncoding = PositionalEncoding(d_model, (max_len), positional_encoding_dropout)
+        self.PositionalEncoding = PositionalEncoding(d_model, max_len, positional_encoding_dropout)
         self.has_velocity = has_velocity
         self.has_offset = has_offset
 
@@ -127,6 +128,8 @@ class InputGrooveRhythmLayer(torch.nn.Module):
             out = self.PositionalEncoding(hvo_projection)
 
         return out, hit[:, :, 0], hvo_projection
+
+
 
 
 # --------------------------------------------------------------------------------
@@ -314,11 +317,14 @@ def load_model(model_path, model_class, params_dict=None, is_evaluating=True, de
         with open(params_dict, 'r') as f:
             params_dict = json.load(f)
 
-    if 'n_src_voices' in params_dict['GrooveEncoder']:
-        # remove
-        params_dict['GrooveEncoder'].pop('n_src_voices')
-        params_dict['GrooveEncoder']['n_src1_voices'] = 1
-        params_dict['GrooveEncoder']['n_src2_voices'] = 9
+    try:
+        if 'n_src_voices' in params_dict['GrooveEncoder']:
+            # remove
+            params_dict['GrooveEncoder'].pop('n_src_voices')
+            params_dict['GrooveEncoder']['n_src1_voices'] = 1
+            params_dict['GrooveEncoder']['n_src2_voices'] = 9
+    except:
+        pass
 
     model = model_class(params_dict)
     model.load_state_dict(loaded_dict["model_state_dict"])

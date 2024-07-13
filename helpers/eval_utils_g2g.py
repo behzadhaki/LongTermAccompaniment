@@ -5,10 +5,10 @@ from eval.GrooveEvaluator import load_evaluator_template, load_g2g_evaluator_tem
 from eval.UMAP import UMapper
 import tqdm
 import time
-from model.LongTermAccompaniment import LongTermAccompaniment
+from model.LongTermAccompaniment import LongTermAccompanimentHierarchical
 
 from logging import getLogger
-logger = getLogger("helpers.LongTermAccompaniment.eval_utils")
+logger = getLogger("helpers.LongTermAccompanimentHierarchical.eval_utils")
 logger.setLevel("DEBUG")
 from data import PairedLTADataset
 

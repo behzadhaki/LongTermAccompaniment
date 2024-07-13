@@ -3,7 +3,7 @@ import os
 import wandb
 
 import torch
-from model.LongTermAccompaniment import LongTermAccompaniment
+from model.LongTermAccompaniment import LongTermAccompanimentHierarchical
 from helpers import train_utils #, eval_utils_g2g
 from data.src.dataLoaders import PairedLTADataset
 from torch.utils.data import DataLoader
@@ -50,18 +50,18 @@ parser.add_argument("--pe_max_n_bars", type=int, help="PerformanceEncoder's max 
 parser.add_argument("--pe_dropout", type=float, help="Dropout of PerformanceEncoder transformer layers", default=0.1)
 parser.add_argument("--pe_positional_encoding_dropout", type=float, help="Dropout of positional encoding at the input of PerformanceEncoder", default=0.1)
 
-# ----------------------- DrumContinuator Model Parameters -----------------------
-parser.add_argument("--dc_d_model", type=int, help="DrumContinuator's d_model", default=128)
-parser.add_argument("--dc_d_ff", type=int, help="DrumContinuator's d_ff", default=512)
-parser.add_argument("--dc_n_layers", type=int, help="DrumContinuator's n_layers", default=3)
-parser.add_argument("--dc_n_heads", type=int, help="DrumContinuator's n_heads", default=4)
-parser.add_argument("--dc_n_tgt_voices", type=int, help="DrumContinuator's n_tgt_voices", default=9)
-parser.add_argument("--dc_max_steps", type=int, help="DrumContinuator's max_steps", default=32)
+# ----------------------- DrumDecoder Model Parameters -----------------------
+parser.add_argument("--dc_d_model", type=int, help="DrumDecoder's d_model", default=128)
+parser.add_argument("--dc_d_ff", type=int, help="DrumDecoder's d_ff", default=512)
+parser.add_argument("--dc_n_layers", type=int, help="DrumDecoder's n_layers", default=3)
+parser.add_argument("--dc_n_heads", type=int, help="DrumDecoder's n_heads", default=4)
+parser.add_argument("--dc_n_tgt_voices", type=int, help="DrumDecoder's n_tgt_voices", default=9)
+parser.add_argument("--dc_max_steps", type=int, help="DrumDecoder's max_steps", default=32)
 
-parser.add_argument("--dc_dropout", type=float, help="Dropout of DrumContinuator transformer layers", default=0.1)
-parser.add_argument("--dc_velocity_dropout", type=float, help="Dropout of velocity information at the input of DrumContinuator", default=0.1)
-parser.add_argument("--dc_offset_dropout", type=float, help="Dropout of offset information at the input of DrumContinuator", default=0.1)
-parser.add_argument("--dc_positional_encoding_dropout", type=float, help="Dropout of positional encoding at the input of DrumContinuator", default=0.1)
+parser.add_argument("--dc_dropout", type=float, help="Dropout of DrumDecoder transformer layers", default=0.1)
+parser.add_argument("--dc_velocity_dropout", type=float, help="Dropout of velocity information at the input of DrumDecoder", default=0.1)
+parser.add_argument("--dc_offset_dropout", type=float, help="Dropout of offset information at the input of DrumDecoder", default=0.1)
+parser.add_argument("--dc_positional_encoding_dropout", type=float, help="Dropout of positional encoding at the input of DrumDecoder", default=0.1)
 
 
 # ----------------------- Training Parameters -----------------------
@@ -86,7 +86,7 @@ parser.add_argument("--output_inst_dataset_bz2_filepath_test", type=str,
 parser.add_argument("--shift_tgt_by_n_steps", type=int,
                     help="Number of steps to shift the target by", default=1)
 parser.add_argument("--hop_n_bars", type=int,
-                    help="Number of bars to hop, if sequence is longer than max_n_bars, this value is used to scroll through and split the sequence", default=2)
+                    help="Number of bars to hop, if sequence is longer than max_n_beats, this value is used to scroll through and split the sequence", default=2)
 parser.add_argument("--create_subsequences", type=bool,
                     help="Create subsequences from the max len input data", default=False)
 parser.add_argument("--subsequence_hop_n_bars", type=int,
@@ -152,12 +152,12 @@ hparams = {
         'dim_feedforward': args.pe_d_ff if not loaded_via_config_yaml else yml_['pe_d_ff'],
         'n_layers': args.pe_n_layers if not loaded_via_config_yaml else yml_['pe_n_layers'],
         'nhead': args.pe_n_heads if not loaded_via_config_yaml else yml_['pe_n_heads'],
-        'max_n_bars': args.pe_max_n_bars if not loaded_via_config_yaml else yml_['pe_max_n_bars'],
+        'max_n_beats': args.pe_max_n_bars if not loaded_via_config_yaml else yml_['pe_max_n_bars'],
         'dropout': args.pe_dropout if not loaded_via_config_yaml else yml_['pe_dropout'],
         'positional_encoding_dropout': args.pe_positional_encoding_dropout if not loaded_via_config_yaml else yml_['pe_positional_dropout']
     },
 
-    'DrumContinuator': {
+    'DrumDecoder': {
         'd_model': args.dc_d_model if not loaded_via_config_yaml else yml_['dc_d_model'],
         'dim_feedforward': args.dc_d_ff if not loaded_via_config_yaml else yml_['dc_d_ff'],
         'n_layers': args.dc_n_layers if not loaded_via_config_yaml else yml_['dc_n_layers'],
@@ -214,8 +214,8 @@ if __name__ == "__main__":
         input_inst_dataset_bz2_filepath=config['input_inst_dataset_bz2_filepath_train'],
         output_inst_dataset_bz2_filepath=config['output_inst_dataset_bz2_filepath_train'],
         shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-        max_input_bars=config['PerformanceEncoder']['max_n_bars'],
-        continuation_bars=int(config['DrumContinuator']['max_steps'] // 16),
+        max_input_bars=config['PerformanceEncoder']['max_n_beats'],
+        continuation_bars=int(config['DrumDecoder']['max_steps'] // 16),
         hop_n_bars=config['hop_n_bars'],
         input_has_velocity=config['GrooveEncoder']['has_velocity'],
         input_has_offsets=config['GrooveEncoder']['has_offset'],
@@ -228,8 +228,8 @@ if __name__ == "__main__":
         input_inst_dataset_bz2_filepath=config['input_inst_dataset_bz2_filepath_test'],
         output_inst_dataset_bz2_filepath=config['output_inst_dataset_bz2_filepath_test'],
         shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-        max_input_bars=config['PerformanceEncoder']['max_n_bars'],
-        continuation_bars=int(config['DrumContinuator']['max_steps'] // 16),
+        max_input_bars=config['PerformanceEncoder']['max_n_beats'],
+        continuation_bars=int(config['DrumDecoder']['max_steps'] // 16),
         hop_n_bars=config['hop_n_bars'],
         input_has_velocity=config['GrooveEncoder']['has_velocity'],
         input_has_offsets=config['GrooveEncoder']['has_offset'],
@@ -240,7 +240,7 @@ if __name__ == "__main__":
 
     # Initialize the model
     # ------------------------------------------------------------------------------------------------------------
-    model_cpu = LongTermAccompaniment(config)
+    model_cpu = LongTermAccompanimentHierarchical(config)
 
     model_on_device = model_cpu.to(config.device)
     wandb.watch(model_on_device, log="all", log_freq=1)
@@ -290,8 +290,8 @@ if __name__ == "__main__":
     def predict_using_batch_data(batch_data, num_input_bars=None, model_=model_on_device, device=config.device):
         model_.eval()
 
-        in_len = config['PerformanceEncoder']['max_n_bars'] * 16
-        out_len = config['DrumContinuator']['max_steps']
+        in_len = config['PerformanceEncoder']['max_n_beats'] * 16
+        out_len = config['DrumDecoder']['max_steps']
         in_step_start = 0
         in_n_steps = in_len
         out_step_start = in_len
@@ -310,12 +310,12 @@ if __name__ == "__main__":
         dec_src = shifted_output
 
         if num_input_bars is None:
-            num_input_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * config['PerformanceEncoder']['max_n_bars']
+            num_input_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * config['PerformanceEncoder']['max_n_beats']
 
         with torch.no_grad():
             h, v, o, hvo = model_.sample(
                 src=enc_src,
-                src_key_padding_and_memory_mask=create_src_mask(num_input_bars, config['PerformanceEncoder']['max_n_bars']).to(device),
+                src_key_padding_and_memory_mask=create_src_mask(num_input_bars, config['PerformanceEncoder']['max_n_beats']).to(device),
                 tgt=dec_src
             )
         return hvo
@@ -323,8 +323,8 @@ if __name__ == "__main__":
     def forward_using_batch_data(batch_data, num_input_bars=None, model_=model_on_device, device=config.device):
         model_.train()
 
-        in_len = config['PerformanceEncoder']['max_n_bars'] * 16
-        out_len = config['DrumContinuator']['max_steps']
+        in_len = config['PerformanceEncoder']['max_n_beats'] * 16
+        out_len = config['DrumDecoder']['max_steps']
         in_step_start = 0
         in_n_steps = in_len
         out_step_start = in_len
@@ -344,9 +344,9 @@ if __name__ == "__main__":
         dec_tgt = output
 
         if num_input_bars is None:
-            num_input_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * config['PerformanceEncoder']['max_n_bars']
+            num_input_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * config['PerformanceEncoder']['max_n_beats']
 
-        mask = create_src_mask(num_input_bars, config['PerformanceEncoder']['max_n_bars']).to(device)
+        mask = create_src_mask(num_input_bars, config['PerformanceEncoder']['max_n_beats']).to(device)
 
         h_logits, v_log, o_log = model_.forward(
             src=enc_src,
@@ -358,11 +358,11 @@ if __name__ == "__main__":
     def forward_using_batch_data_with_custom_context(batch_data, num_input_bars=None, in_step_start=0, model_=model_on_device, device=config.device):
         model_.train()
 
-        out_len = config['DrumContinuator']['max_steps']
+        out_len = config['DrumDecoder']['max_steps']
 
         if num_input_bars is None:
-            num_input_bars = config['PerformanceEncoder']['max_n_bars']
-        in_len = config['PerformanceEncoder']['max_n_bars'] * 16
+            num_input_bars = config['PerformanceEncoder']['max_n_beats']
+        in_len = config['PerformanceEncoder']['max_n_beats'] * 16
 
         out_step_start = in_step_start + in_len
         out_n_steps = out_len
@@ -382,7 +382,7 @@ if __name__ == "__main__":
 
         n_bars = torch.ones((enc_src.shape[0], 1), dtype=torch.long).to(device) * num_input_bars
 
-        mask = create_src_mask(n_bars, config['PerformanceEncoder']['max_n_bars']).to(device)
+        mask = create_src_mask(n_bars, config['PerformanceEncoder']['max_n_beats']).to(device)
 
         h_logits, v_log, o_log = model_.forward(
             src=enc_src,

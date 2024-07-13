@@ -650,6 +650,175 @@ class PairedLTADataset(Dataset):
                 )
 
 
+class PairedLTADatasetV2(Dataset):
+    def __init__(self,
+                 input_inst_dataset_bz2_filepath,
+                 output_inst_dataset_bz2_filepath,
+                 shift_tgt_by_n_steps=1,
+                 max_input_bars=32,
+                 hop_n_bars=2,
+                 input_has_velocity=True,
+                 input_has_offsets=True,
+                 push_all_data_to_cuda=False):
+
+        self.max_input_bars = max_input_bars
+        self.hop_n_bars = hop_n_bars
+        self.input_has_velocity = input_has_velocity
+        self.input_has_offsets = input_has_offsets
+
+        def get_cached_filepath():
+            dir_ = "cached/TorchDatasets"
+            filename = (
+                f"PairedLTADatasetV2_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
+                f"_{max_input_bars}_{hop_n_bars}_{input_has_velocity}_{input_has_offsets}_{shift_tgt_by_n_steps}.bz2pickle")
+            if not os.path.exists(dir_):
+                os.makedirs(dir_)
+            return os.path.join(dir_, filename)
+
+        def stack_two_hvos(hvo1, hvo2, use_velocity, use_offsets):
+            # assert same length
+            assert hvo1.shape[0] == hvo2.shape[0], f"{hvo1.shape} != {hvo2.shape}"
+
+            n_voices_1 = hvo1.shape[-1] // 3
+            n_voices_2 = hvo2.shape[-1] // 3
+
+            h1 = hvo1[:, :n_voices_1]
+            v1 = hvo1[:, n_voices_1:2 * n_voices_1]
+            o1 = hvo1[:, 2 * n_voices_1:]
+            h2 = hvo2[:, :n_voices_2]
+            v2 = hvo2[:, n_voices_2:2 * n_voices_2]
+            o2 = hvo2[:, 2 * n_voices_2:]
+
+            if use_velocity and use_offsets:
+                return np.hstack([h1, h2, v1, v2, o1, o2])
+            elif use_offsets:
+                return np.hstack([h1, h2, o1, o2])
+            elif use_velocity:
+                return np.hstack([h1, h2, v1, v2])
+            else:
+                return np.hstack([h1, h2])
+
+        # check if cached version exists
+        cached_exists = os.path.exists(get_cached_filepath())
+
+        if cached_exists:
+            # todo load cached version
+            should_process_data = False
+
+            # Load the cached version
+            dataLoaderLogger.info(f"PairedLTADatasetV2 Constructor --> Loading Cached Version from: {get_cached_filepath()}")
+            ifile = bz2.BZ2File(get_cached_filepath(), 'rb')
+            data = pickle.load(ifile)
+            ifile.close()
+            self.instrument1_hvos = torch.tensor(data["instrument1_hvos"], dtype=torch.float32)
+            self.instrument2_hvos = torch.tensor(data["instrument2_hvos"], dtype=torch.float32)
+            self.instrument1and2_hvos = torch.tensor(data["instrument1and2_hvos"], dtype=torch.float32)
+            self.instrument2_shifted_hvos = torch.tensor(data["instrument2_shifted_hvos"], dtype=torch.float32)
+
+        else:
+            should_process_data = True
+
+        if should_process_data:
+            # load data
+            with bz2.BZ2File(input_inst_dataset_bz2_filepath, 'rb') as f:
+                instrument1s = pickle.load(f)
+            with bz2.BZ2File(output_inst_dataset_bz2_filepath, 'rb') as f:
+                instrument2s = pickle.load(f)
+
+            # get song ids that are common in both datasets
+            song_ids_all = list(set(instrument1s.keys()) & set(instrument2s.keys()))
+            song_ids_ = []
+
+            inst1_hvos = []
+            inst2_hvos = []
+            inst1and2_hvos = []
+            inst2_shifted_hvos = []
+
+            for song_id in tqdm(song_ids_all):
+                i1 = instrument1s[song_id]
+                i2 = instrument2s[song_id]
+
+                if len(i1.time_signatures) == 1 and len(i2.time_signatures) == 1:
+                    if (i1.time_signatures[0].numerator == i2.time_signatures[0].numerator and
+                            i1.time_signatures[0].denominator == i2.time_signatures[0].denominator):
+                        if i1.time_signatures[0].numerator == 4 and i1.time_signatures[0].denominator == 4:
+                            song_ids_.append(song_id)
+
+                # adjust to the same length
+                n_steps = max(i1.hvo.shape[0], i2.hvo.shape[0])
+                i1.adjust_length(n_steps)
+                i2.adjust_length(n_steps)
+
+                n_bars = n_steps // 16
+
+                segments_starts = [i for i in range(0, n_bars, hop_n_bars)]
+
+                for i in segments_starts:
+                    ts_ = i * 16
+                    te_ = ts_ + max_input_bars * 16
+                    i1_seg = i1.hvo[ts_:te_]
+                    i2_seg = i2.hvo[ts_:te_]
+
+                    if i1_seg.shape[0] == max_input_bars * 16:
+                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, input_has_velocity, input_has_offsets)
+                        inst1_hvos.append(i1_seg)
+                        inst2_hvos.append(i2_seg)
+                        inst1and2_hvos.append(i1_2_stack)
+                        inst2_shifted_ = np.zeros_like(i2_seg)
+                        inst2_shifted_[shift_tgt_by_n_steps:] = i2_seg[:-shift_tgt_by_n_steps]
+                        inst2_shifted_hvos.append(inst2_shifted_)
+
+            self.instrument1_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1_hvos])
+            self.instrument2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_hvos])
+            self.instrument1and2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1and2_hvos])
+            self.instrument2_shifted_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_shifted_hvos])
+
+            # cache the processed data
+            data_to_dump = {
+                "instrument1_hvos": self.instrument1_hvos.numpy(),
+                "instrument2_hvos": self.instrument2_hvos.numpy(),
+                "instrument1and2_hvos": self.instrument1and2_hvos.numpy(),
+                "instrument2_shifted_hvos": self.instrument2_shifted_hvos.numpy(),
+            }
+
+            ofile = bz2.BZ2File(get_cached_filepath(), 'wb')
+            pickle.dump(data_to_dump, ofile)
+
+            ofile.close()
+
+            dataLoaderLogger.info(f"Loaded {len(self.instrument1_hvos)} sequences")
+
+        if push_all_data_to_cuda:
+            self.instrument1_hvos = self.instrument1_hvos.cuda()
+            self.instrument2_hvos = self.instrument2_hvos.cuda()
+            self.instrument1and2_hvos = self.instrument1and2_hvos.cuda()
+            self.instrument2_shifted_hvos = self.instrument2_shifted_hvos.cuda()
+
+    def get_hit_density_histogram(self, n_bins=100):
+        hit_densities = []
+        for i in range(len(self)):
+            _, _, i12 = self[i]
+            hit_densities.append(i12[:, :10].numpy().flatten().mean())
+
+        hit_density_hist, bin_edges, _ = binned_statistic(hit_densities, hit_densities, statistic='count', bins=n_bins)
+        return hit_density_hist, bin_edges
+
+    def show_hit_density_histogram(self, n_bins=100):
+        hit_density_hist, bin_edges = self.get_hit_density_histogram(n_bins)
+        plt.bar(bin_edges[:-1], hit_density_hist, width=bin_edges[1] - bin_edges[0])
+        plt.show()
+
+    def __len__(self):
+        return len(self.instrument1_hvos)
+
+    def __getitem__(self, idx):
+        return (self.instrument1_hvos[idx],
+                self.instrument2_hvos[idx],
+                self.instrument1and2_hvos[idx],
+                self.instrument2_shifted_hvos[idx]
+                )
+
+
 if __name__ == "__main__":
     # tester
     dataLoaderLogger.info("Run demos/data/demo.py to test")
