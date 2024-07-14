@@ -33,9 +33,9 @@ dc_velocity_dropout: 0.3
 dc_offset_dropout: 0.3
 dc_positional_dropout: 0.1
 
-scale_h_loss: 0.25
-scale_v_loss: 10
-scale_o_loss: 4
+scale_h_loss: 1
+scale_v_loss: 6.8
+scale_o_loss: 0.6432
 optimizer: "adam"
 lr: 0.0006369948608989782
 batch_size: 64
