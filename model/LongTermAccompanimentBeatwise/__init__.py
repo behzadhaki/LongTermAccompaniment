@@ -172,7 +172,7 @@ class PerformanceEncoder(torch.nn.Module):
                 perf_encodings = self.Encoder.forward(
                     src=src,
                     is_causal=self.auto_regressive,
-                    mask=self.causal_mask)
+                    mask=self.causal_mask[:src.shape[1], :src.shape[1]])
             else:
                 perf_encodings = self.Encoder(src)
 
@@ -385,7 +385,7 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         return h_logits, v_logits, o_logits
 
     @torch.jit.ignore
-    def sample(self, src: torch.Tensor, tgt: torch.Tensor, scale_vel: float=1.0):
+    def sample(self, src: torch.Tensor, tgt: torch.Tensor, scale_vel: float=1.0, threshold: float=0.5, use_bernulli: bool=False) -> torch.Tensor:
 
 
         h_logits, v_logits, o_logits = self.forward(
@@ -394,10 +394,15 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         )
 
         h = torch.sigmoid(h_logits)
+        # bernoulli sampling
         v = torch.clamp((torch.tanh(v_logits) + 0.5) * scale_vel, 0.0, 1.0)
         o = torch.tanh(o_logits)
 
-        h = torch.where(h > 0.5, 1, 0)
+        if use_bernulli:
+            h = torch.where(h < threshold, 0.0, h)
+            h = torch.bernoulli(h)
+        else:
+            h = torch.where(h > threshold, 1.0, 0.0)
 
         return h, v, o, torch.cat((h, v, o), dim=-1)
 
