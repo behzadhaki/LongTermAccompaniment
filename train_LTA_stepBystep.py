@@ -72,6 +72,7 @@ parser.add_argument("--lr", type=float, help="Learning Rate", default=0.0001)
 parser.add_argument("--batch_size", type=int, help="Batch Size", default=32)
 parser.add_argument("--epochs", type=int, help="Number of epochs", default=1000)
 parser.add_argument("--device", type=str, help="Device to run the model on", default="cuda" if torch.cuda.is_available() else "cpu")
+parser.add_argument("--teacher_forcing_ratio", type=float, help="Teacher forcing ratio", default=0.5)
 
 # ----------------------- Data Parameters -----------------------
 parser.add_argument("--input_inst_dataset_bz2_filepath_train", type=str,
@@ -129,7 +130,8 @@ hparams = {
     'epochs': args.epochs if not loaded_via_config_yaml else yml_['epochs'],
     'device': args.device if not loaded_via_config_yaml else yml_['device'],
     'max_n_bars': args.max_n_bars if not loaded_via_config_yaml else yml_['max_n_bars'],
-    
+    'teacher_forcing_ratio': args.teacher_forcing_ratio if not loaded_via_config_yaml else yml_['teacher_forcing_ratio'],
+
     'SegmentEncoder': {
         'd_model': args.se_d_model if not loaded_via_config_yaml else yml_['se_d_model'],
         'dim_feedforward': args.se_d_ff if not loaded_via_config_yaml else yml_['se_d_ff'],
@@ -271,7 +273,7 @@ if __name__ == "__main__":
 
         bass_solo = data_[0].to(device) if data_[0].device.type != device else data_[0]
         drums = data_[1].to(device) if data_[1].device.type != device else data_[1]
-        stacked_bass_drums = data_[2].to(device) if data_[2].device.type != device else data_[2]
+        stacked_bass_drums = None #data_[2].to(device) if data_[2].device.type != device else data_[2]
         shifted_drums = data_[3].to(device) if data_[3].device.type != device else data_[3]
 
         return bass_solo, drums, stacked_bass_drums, shifted_drums
@@ -299,18 +301,37 @@ if __name__ == "__main__":
 
         bass_solo, drums, stacked_bass_drums, shifted_drums = batch_data_extractor(
             data_=batch_data,
-            device=device
+            device='cpu'
         )
 
-        enc_src = bass_solo
-        dec_src = shifted_drums
-        dec_tgt = drums
+        enc_src = bass_solo.to(device) if bass_solo.device.type != device else bass_solo
 
-        h_logits, v_log, o_log = model_.forward(
-            src=enc_src,
-            shifted_tgt=dec_src) # passing the previous 2 bars of drums as dec input and trying to predict the upcoming 2 bars
+        shifted_predicted_tgt = torch.zeros((drums.shape[0], drums.shape[1] + 16, drums.shape[2])).to(device)
 
-        return h_logits, v_log, o_log, dec_tgt
+        if config['teacher_forcing_ratio'] >= 0.95:
+            h_logits, v_log, o_log = model_.forward(
+                src=enc_src,
+                shifted_tgt=shifted_drums.to(device) if bass_solo.device.type != device else bass_solo) # passing the previous 2 bars of drums as dec input and trying to predict the upcoming 2 bars
+        else:
+            n_4_bars = shifted_predicted_tgt.shape[1] // (16*4)
+
+            for i in range(n_4_bars):
+                h_logits, v_log, o_log = model_.forward(
+                    src=enc_src[:, :16*4*(i+1), :],
+                    shifted_tgt=shifted_predicted_tgt[:, :16*4*(i+1), :]
+                )
+                if torch.rand(1).item() > config['teacher_forcing_ratio']:
+                    h = torch.sigmoid(h_logits[:, -16*4:, :])
+                    # bernoulli sampling
+                    v = torch.clamp((torch.tanh(v_log[:, -16*4:, :]) + 0.5), 0.0, 1.0)
+                    o = torch.tanh(o_log[:, -16*4:, :])
+                    shifted_predicted_tgt[:, i*16*4:(i+1)*16*4, :] = torch.cat((h, v, o), dim=-1)
+                    del h, v, o
+                else:
+                    shifted_predicted_tgt[:, i*16*4:(i+1)*16*4, :] = shifted_drums[:, i*16*4:(i+1)*16*4, :].to(device)
+
+        return h_logits, v_log, o_log, drums.to(device)
+
 
     for epoch in range(config.epochs):
         print(f"Epoch {epoch} of {config.epochs}, steps so far {step_}")
