@@ -1,4 +1,12 @@
+# 1 - Instead of starting with zeros, start with all ones (i.e. sort of Start token)
+# 2 - On the decoder input, don't provide velocity, only hits and offsets
+# 3 - instead of providing shifted version to decoder, provide the shifted groove of instrumental
+
+
+
+
+
 # 1 - Use next timestep prediction instead of next bar prediction
 
-# 2 - Use teacher forcing to train the model
+# 2 - Use teacher forcing to train the model --> not so helpful (super slow training)
 

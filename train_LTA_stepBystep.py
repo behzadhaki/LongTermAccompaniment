@@ -313,22 +313,22 @@ if __name__ == "__main__":
                 src=enc_src,
                 shifted_tgt=shifted_drums.to(device) if bass_solo.device.type != device else bass_solo) # passing the previous 2 bars of drums as dec input and trying to predict the upcoming 2 bars
         else:
-            n_4_bars = shifted_predicted_tgt.shape[1] // (16*4)
+            n_4_bars = shifted_predicted_tgt.shape[1] // (16)
 
             for i in range(n_4_bars):
                 h_logits, v_log, o_log = model_.forward(
-                    src=enc_src[:, :16*4*(i+1), :],
-                    shifted_tgt=shifted_predicted_tgt[:, :16*4*(i+1), :]
+                    src=enc_src[:, :16*(i+1), :],
+                    shifted_tgt=shifted_predicted_tgt[:, :16*(i+1), :]
                 )
                 if torch.rand(1).item() > config['teacher_forcing_ratio']:
-                    h = torch.sigmoid(h_logits[:, -16*4:, :])
+                    h = torch.sigmoid(h_logits[:, -16:, :])
                     # bernoulli sampling
-                    v = torch.clamp((torch.tanh(v_log[:, -16*4:, :]) + 0.5), 0.0, 1.0)
-                    o = torch.tanh(o_log[:, -16*4:, :])
-                    shifted_predicted_tgt[:, i*16*4:(i+1)*16*4, :] = torch.cat((h, v, o), dim=-1)
+                    v = torch.clamp((torch.tanh(v_log[:, -16:, :]) + 1.0) / 2.0, 0.0, 1.0)
+                    o = torch.tanh(o_log[:, -16:, :])
+                    shifted_predicted_tgt[:, i*16:(i+1)*16, :] = torch.cat((h, v, o), dim=-1)
                     del h, v, o
                 else:
-                    shifted_predicted_tgt[:, i*16*4:(i+1)*16*4, :] = shifted_drums[:, i*16*4:(i+1)*16*4, :].to(device)
+                    shifted_predicted_tgt[:, i*16:(i+1)*16, :] = shifted_drums[:, i*16:(i+1)*16, :].to(device)
 
         return h_logits, v_log, o_log, drums.to(device)
 

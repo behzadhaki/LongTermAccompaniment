@@ -168,9 +168,9 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
 def calculate_velocity_loss(vel_logits, vel_targets, vel_loss_function, hit_mask=None):
     vel_activated = torch.tanh(vel_logits)
     if hit_mask is None:
-        return (vel_loss_function(vel_activated, vel_targets - 0.5)).mean()
+        return (vel_loss_function(vel_activated, vel_targets * 2 - 1.0)).mean()
     else:
-        return (vel_loss_function(vel_activated, vel_targets - 0.5) * hit_mask).mean()
+        return (vel_loss_function(vel_activated, vel_targets * 2 - 1.0) * hit_mask).mean()
 
 
 def calculate_offset_loss(offset_logits, offset_targets, offset_loss_function, hit_mask=None):

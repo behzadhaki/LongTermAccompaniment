@@ -385,7 +385,7 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         return h_logits, v_logits, o_logits
 
     @torch.jit.ignore
-    def sample(self, src: torch.Tensor, tgt: torch.Tensor, scale_vel: float=1.0, threshold: float=0.5, use_bernulli: bool=False) -> torch.Tensor:
+    def sample(self, src: torch.Tensor, tgt: torch.Tensor, scale_vel: float=1.0, threshold: float=0.5, use_bernulli: bool=False):
 
 
         h_logits, v_logits, o_logits = self.forward(
@@ -395,7 +395,7 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
 
         h = torch.sigmoid(h_logits)
         # bernoulli sampling
-        v = torch.clamp((torch.tanh(v_logits) + 0.5) * scale_vel, 0.0, 1.0)
+        v = torch.clamp(((torch.tanh(v_logits) + 1.0) / 2) * scale_vel, 0.0, 1.0)
         o = torch.tanh(o_logits)
 
         if use_bernulli:
@@ -545,7 +545,7 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
                     memory=self.performance_memory)
 
                 h = torch.sigmoid(h_logits)
-                v = torch.tanh(v_logits) + 0.5
+                v = (torch.tanh(v_logits) + 1.0) / 2
                 o = torch.tanh(o_logits)
 
                 current_step_hits = torch.where(h > threshold, 1, 0)
@@ -588,7 +588,6 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         self.performance_memory = self.PerformanceEncoder.forward(
             src_rhythm_encodings=self.encoded_segments)
 
-
     @torch.jit.export
     def get_upcoming_2bars(self, sampling_thresh: float = 0.5):
 
@@ -603,7 +602,7 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
 
             step_h = torch.sigmoid(h_logits[:, i, :])
             # set over the threshold to 1
-            step_v = torch.tanh(v_logits[:, i, :]) + 0.5
+            step_v = (torch.tanh(v_logits[:, i, :]) + 1.0) / 2
             step_o = torch.tanh(o_logits[:, i, :])
 
             current_step_hits = torch.where(step_h > sampling_thresh, 1, 0)
