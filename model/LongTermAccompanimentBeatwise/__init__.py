@@ -41,31 +41,37 @@ class SegmentEncoder(torch.nn.Module):
         self.has_velocity = self.config['has_velocity']
         self.has_offset = self.config['has_offset']
         self.steps_per_segment = self.config['steps_per_segment']
-        
+
         # Layers
         # ---------------------------------------------------
 
-        self.InputLayerEncoder = InputGrooveRhythmLayer(
-            embedding_size=(self.config['n_src1_voices'] + self.config['n_src2_voices'])*self.n_feaures_per_step,
-            d_model=self.config['d_model'],
-            max_len=self.steps_per_segment,
-            velocity_dropout=float(self.config['velocity_dropout']),
-            offset_dropout=float(self.config['offset_dropout']),
-            positional_encoding_dropout=float(self.config['dropout']),
-            has_velocity=self.config['has_velocity'],
-            has_offset=self.config['has_offset']
-        )
+        # self.InputLayerEncoder = InputGrooveRhythmLayer(
+        #     embedding_size=(self.config['n_src1_voices'] + self.config['n_src2_voices'])*self.n_feaures_per_step,
+        #     d_model=self.config['d_model'],
+        #     max_len=self.steps_per_segment,
+        #     velocity_dropout=float(self.config['velocity_dropout']),
+        #     offset_dropout=float(self.config['offset_dropout']),
+        #     positional_encoding_dropout=float(self.config['dropout']),
+        #     has_velocity=self.config['has_velocity'],
+        #     has_offset=self.config['has_offset']
+        # )
 
-        self.Encoder = TransformerEncoder(
-            d_model=self.config['d_model'],
-            nhead=self.config['nhead'],
-            dim_feedforward=self.config['dim_feedforward'],
-            num_encoder_layers=self.config['n_layers'],
-            dropout=float(self.config['dropout']),
-            max_len=self.steps_per_segment
-        )
+        # self.Encoder = TransformerEncoder(
+        #     d_model=self.config['d_model'],
+        #     nhead=self.config['nhead'],
+        #     dim_feedforward=self.config['dim_feedforward'],
+        #     num_encoder_layers=self.config['n_layers'],
+        #     dropout=float(self.config['dropout']),
+        #     max_len=self.steps_per_segment
+        # )
 
-        self.InputLayerEncoder.init_weights(0.1)
+        # use linear layer to project the output of the encoder to mix self.steps_per_segment into a single tensor
+        self.FCN = torch.nn.Linear(
+            in_features=self.steps_per_segment * self.n_src_voices * self.n_feaures_per_step,
+            out_features=self.config['d_model']
+        )
+        self.FCN.bias.data.zero_()
+        self.FCN.weight.data.uniform_(-0.1, 0.1)
 
     @torch.jit.export
     def forward(self, src: torch.Tensor):
@@ -78,8 +84,7 @@ class SegmentEncoder(torch.nn.Module):
         :return: memory: [N, d_model]
 
         """
-        x, hit, hvo_projection = self.InputLayerEncoder(hvo=src)
-        return self.Encoder.encode_unmasked(x)[:, -1, :]
+        return self.FCN(src.view(src.shape[0], -1))
 
     @torch.jit.ignore
     def save(self, save_path, additional_info=None):
