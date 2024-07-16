@@ -7,7 +7,7 @@ se_n_heads: 4
 se_n_src1_voices: 1
 se_n_src2_voices: 0
 se_steps_per_segment: 4
-se_has_velocity: true
+se_has_velocity: false
 se_has_offset: true
 se_dropout: 0.1
 se_velocity_dropout: 0.1
@@ -32,6 +32,8 @@ dc_dropout: 0.1
 dc_velocity_dropout: 0.3
 dc_offset_dropout: 0.3
 dc_positional_dropout: 0.1
+dc_has_velocity: false
+dc_has_offset: true
 
 scale_h_loss: 1
 scale_v_loss: 1.7
@@ -46,14 +48,14 @@ input_inst_dataset_bz2_filepath_train: "data/lmd/data_bass_groove_train.bz2"
 output_inst_dataset_bz2_filepath_train: "data/lmd/data_drums_full_unsplit.bz2"
 input_inst_dataset_bz2_filepath_test: "data/lmd/data_bass_groove_test.bz2"
 output_inst_dataset_bz2_filepath_test: "data/lmd/data_drums_full_unsplit.bz2"
-shift_tgt_by_n_steps: 16
+shift_tgt_by_n_steps: 1
 hop_n_bars: 8
 
 upload_to_wandb: false
 save_model_frequency: 5
 push_all_data_to_cuda: false
 teacher_forcing_ratio: 1.0
-
-
+start_decoder_training_at_epoch: 20
+run_name: "freezing_decoder_initially_AND_vel_zero_at_ins"
 
 

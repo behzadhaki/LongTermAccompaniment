@@ -32,38 +32,14 @@ class SegmentEncoder(torch.nn.Module):
         """
 
         super(SegmentEncoder, self).__init__()
-
+        self.n_feaures_per_step = 3
         self.config = config['SegmentEncoder'] if 'SegmentEncoder' in config else config
-        self.n_feaures_per_step = 3 if self.config['has_velocity'] and self.config['has_offset'] else 2 if self.config['has_velocity'] else 2 if self.config['has_offset'] else 1
         self.n_src_voices = self.config['n_src1_voices'] + self.config['n_src2_voices']
         self.n_src1_voices = self.config['n_src1_voices']
         self.n_src2_voices = self.config['n_src2_voices']
-        self.has_velocity = self.config['has_velocity']
-        self.has_offset = self.config['has_offset']
+        self.has_velocity = self.config['has_velocity'] # whether the input has velocity <--- Not used internally, just for access through serialized model (make sure the data are correctly set to zero externally)
+        self.has_offset = self.config['has_offset'] # whether the input has offset <--- Not used here, just for access through serialized model
         self.steps_per_segment = self.config['steps_per_segment']
-
-        # Layers
-        # ---------------------------------------------------
-
-        # self.InputLayerEncoder = InputGrooveRhythmLayer(
-        #     embedding_size=(self.config['n_src1_voices'] + self.config['n_src2_voices'])*self.n_feaures_per_step,
-        #     d_model=self.config['d_model'],
-        #     max_len=self.steps_per_segment,
-        #     velocity_dropout=float(self.config['velocity_dropout']),
-        #     offset_dropout=float(self.config['offset_dropout']),
-        #     positional_encoding_dropout=float(self.config['dropout']),
-        #     has_velocity=self.config['has_velocity'],
-        #     has_offset=self.config['has_offset']
-        # )
-
-        # self.Encoder = TransformerEncoder(
-        #     d_model=self.config['d_model'],
-        #     nhead=self.config['nhead'],
-        #     dim_feedforward=self.config['dim_feedforward'],
-        #     num_encoder_layers=self.config['n_layers'],
-        #     dropout=float(self.config['dropout']),
-        #     max_len=self.steps_per_segment
-        # )
 
         # use linear layer to project the output of the encoder to mix self.steps_per_segment into a single tensor
         self.FCN = torch.nn.Linear(
@@ -240,9 +216,10 @@ class DrumDecoder(torch.nn.Module):
             super(DrumDecoder, self).__init__()
 
             self.config = config['DrumDecoder'] if 'DrumDecoder' in config else config
+            num_features = 3
 
             self.InputLayerEncoder = InputGrooveRhythmLayer(
-                embedding_size=self.config['n_tgt_voices']*3,
+                embedding_size=self.config['n_tgt_voices']*num_features,
                 d_model=self.config['d_model'],
                 max_len=self.config['max_steps'],
                 velocity_dropout=float(self.config['velocity_dropout']),
@@ -285,18 +262,18 @@ class DrumDecoder(torch.nn.Module):
 
         @torch.jit.export
         def forward(self, tgt: torch.Tensor, memory: torch.Tensor):
-            x, hit, hvo_projection = self.InputLayerEncoder(hvo=tgt)
+            out_with_position, hit, hvo_projection = self.InputLayerEncoder(hvo=tgt)
 
             # replace True to -inf, False to 0
 
-            if self.causal_mask.device != x.device:
-                self.causal_mask = self.causal_mask.to(x.device)
+            if self.causal_mask.device != out_with_position.device:
+                self.causal_mask = self.causal_mask.to(out_with_position.device)
 
             if self.memory_mask.device != memory.device:
                 self.memory_mask = self.memory_mask.to(memory.device)
 
             output = self.Decoder(
-                tgt=hvo_projection,
+                tgt=out_with_position,
                 memory=memory,
                 tgt_mask=self.causal_mask[:tgt.shape[1], :tgt.shape[1]],
                 memory_mask=self.memory_mask[:tgt.shape[1], :memory.shape[1]]
@@ -366,7 +343,14 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         self.max_tgt_steps = self.config['DrumDecoder']['max_steps']
         self.num_tgt_voices = self.config['DrumDecoder']['n_tgt_voices']
 
+    @torch.jit.ignore
+    def freeze_decoder(self):
+        # freeze decoder
+        self.DrumDecoder.requires_grad_(False)
 
+    @torch.jit.ignore
+    def unfreeze_decoder(self):
+        self.DrumDecoder.requires_grad_(True)
 
     def forward(self, src: torch.Tensor, shifted_tgt: torch.Tensor):
 
@@ -390,7 +374,11 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         return h_logits, v_logits, o_logits
 
     @torch.jit.ignore
-    def sample(self, src: torch.Tensor, tgt: torch.Tensor, scale_vel: float=1.0, threshold: float=0.5, use_bernulli: bool=False):
+    def exclude_decoder_from_backprop(self):
+        self.DrumDecoder.requires_grad_(False)
+
+    @torch.jit.ignore
+    def sample(self, src: torch.Tensor, tgt: torch.Tensor, scale_vel: float=1.0, threshold: float=0.5, use_bernulli: bool=False, temperature: float=1.0):
 
 
         h_logits, v_logits, o_logits = self.forward(
@@ -398,7 +386,12 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
             shifted_tgt=tgt
         )
 
+        if temperature <= 0.000001:
+            temperature = 0.000001
+
+        h_logits = h_logits / temperature
         h = torch.sigmoid(h_logits)
+
         # bernoulli sampling
         v = torch.clamp(((torch.tanh(v_logits) + 1.0) / 2) * scale_vel, 0.0, 1.0)
         o = torch.tanh(o_logits)
@@ -409,7 +402,7 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         else:
             h = torch.where(h > threshold, 1.0, 0.0)
 
-        return h, v, o, torch.cat((h, v, o), dim=-1)
+        return h, v, o, torch.cat((h, v, o), dim=-1), h_logits
 
     @torch.jit.export
     def stack_two_hvos(self, hvo1: torch.Tensor, hvo2: torch.Tensor):
@@ -425,30 +418,14 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         n_voices_1 = self.SegmentEncoder.n_src1_voices
         n_voices_2 = self.SegmentEncoder.n_src2_voices
 
-        if self.SegmentEncoder.has_velocity and self.SegmentEncoder.has_offset:
-            h1 = hvo1[:, :n_voices_1]
-            v1 = hvo1[:, n_voices_1:2 * n_voices_1]
-            o1 = hvo1[:, 2 * n_voices_1:]
-            h2 = hvo2[:, :n_voices_2]
-            v2 = hvo2[:, n_voices_2:2 * n_voices_2]
-            o2 = hvo2[:, 2 * n_voices_2:]
-            return torch.hstack([h1, h2, v1, v2, o1, o2]).unsqueeze(0) if has_batch_dim else torch.hstack([h1, h2, v1, v2, o1, o2])
-        elif self.SegmentEncoder.has_offset:
-            h1 = hvo1[:, :n_voices_1]
-            o1 = hvo1[:, n_voices_1:]
-            h2 = hvo2[:, :n_voices_2]
-            o2 = hvo2[:, n_voices_2:]
-            return torch.hstack([h1, h2, o1, o2]).unsqueeze(0) if has_batch_dim else torch.hstack([h1, h2, o1, o2])
-        elif self.SegmentEncoder.has_velocity:
-            h1 = hvo1[:, :n_voices_1]
-            v1 = hvo1[:, n_voices_1:]
-            h2 = hvo2[:, :n_voices_2]
-            v2 = hvo2[:, n_voices_2:]
-            return torch.hstack([h1, h2, v1, v2]).unsqueeze(0) if has_batch_dim else torch.hstack([h1, h2, v1, v2])
-        else:
-            h1 = hvo1
-            h2 = hvo2
-            return torch.hstack([h1, h2]).unsqueeze(0) if has_batch_dim else torch.hstack([h1, h2])
+        h1 = hvo1[:, :n_voices_1]
+        v1 = hvo1[:, n_voices_1:2 * n_voices_1]
+        o1 = hvo1[:, 2 * n_voices_1:]
+        h2 = hvo2[:, :n_voices_2]
+        v2 = hvo2[:, n_voices_2:2 * n_voices_2]
+        o2 = hvo2[:, 2 * n_voices_2:]
+        return torch.hstack([h1, h2, v1, v2, o1, o2]).unsqueeze(0) if has_batch_dim else torch.hstack(
+            [h1, h2, v1, v2, o1, o2])
 
     @torch.jit.export
     def add_single_bar_of_instrumental_pair(self, src_instr_hvo: torch.Tensor, tgt_instr_hvo: torch.Tensor):

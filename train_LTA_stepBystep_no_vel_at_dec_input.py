@@ -61,7 +61,8 @@ parser.add_argument("--dc_dropout", type=float, help="Dropout of DrumDecoder tra
 parser.add_argument("--dc_velocity_dropout", type=float, help="Dropout of velocity information at the input of DrumDecoder", default=0.1)
 parser.add_argument("--dc_offset_dropout", type=float, help="Dropout of offset information at the input of DrumDecoder", default=0.1)
 parser.add_argument("--dc_positional_encoding_dropout", type=float, help="Dropout of positional encoding at the input of DrumDecoder", default=0.1)
-
+parser.add_argument("--dc_has_velocity", type=bool, help="DrumDecoder's has_velocity", default=True)
+parser.add_argument("--dc_has_offset", type=bool, help="DrumDecoder's has_offset", default=True)
 
 # ----------------------- Training Parameters -----------------------
 parser.add_argument("--scale_h_loss", type=float, help="Scale for hit loss", default=1)
@@ -73,6 +74,7 @@ parser.add_argument("--batch_size", type=int, help="Batch Size", default=32)
 parser.add_argument("--epochs", type=int, help="Number of epochs", default=1000)
 parser.add_argument("--device", type=str, help="Device to run the model on", default="cuda" if torch.cuda.is_available() else "cpu")
 parser.add_argument("--teacher_forcing_ratio", type=float, help="Teacher forcing ratio", default=0.5)
+parser.add_argument("--start_decoder_training_at_epoch", type=int, help="Start training the decoder at this epoch", default=0)
 
 # ----------------------- Data Parameters -----------------------
 parser.add_argument("--input_inst_dataset_bz2_filepath_train", type=str,
@@ -106,6 +108,7 @@ parser.add_argument("--save_model", type=bool, help="Save model", default=True)
 parser.add_argument("--save_model_dir", type=str, help="Path to save the model", default="misc/LTA")
 parser.add_argument("--upload_to_wandb", type=bool, help="Upload to wandb", default=True)
 parser.add_argument("--save_model_frequency", type=int, help="Save model every n epochs", default=5)
+parser.add_argument("--run_name", type=str, help="Run name", default="")
 
 args, unknown = parser.parse_known_args()
 if unknown:
@@ -166,6 +169,8 @@ hparams = {
         'n_tgt_voices': args.dc_n_tgt_voices if not loaded_via_config_yaml else yml_['dc_n_tgt_voices'],
         'max_steps': max_n_bars * 16,
         'dropout': args.dc_dropout if not loaded_via_config_yaml else yml_['dc_dropout'],
+        'has_velocity': args.dc_has_velocity if not loaded_via_config_yaml else yml_['dc_has_velocity'],
+        'has_offset': args.dc_has_offset if not loaded_via_config_yaml else yml_['dc_has_offset'],
         'velocity_dropout': args.dc_velocity_dropout if not loaded_via_config_yaml else yml_['dc_velocity_dropout'],
         'offset_dropout': args.dc_offset_dropout if not loaded_via_config_yaml else yml_['dc_offset_dropout'],
         'positional_encoding_dropout': args.dc_positional_encoding_dropout if not loaded_via_config_yaml else yml_['dc_positional_dropout']
@@ -178,6 +183,8 @@ hparams = {
     'shift_tgt_by_n_steps': args.shift_tgt_by_n_steps if not loaded_via_config_yaml else yml_['shift_tgt_by_n_steps'],
     'hop_n_bars': args.hop_n_bars if not loaded_via_config_yaml else yml_['hop_n_bars'],
     'push_all_data_to_cuda': args.push_all_data_to_cuda if not loaded_via_config_yaml else yml_['push_all_data_to_cuda'],
+    'start_decoder_training_at_epoch': args.start_decoder_training_at_epoch if not loaded_via_config_yaml else yml_['start_decoder_training_at_epoch'],
+    'run_name': None if not loaded_via_config_yaml else yml_['run_name'] if 'run_name' in yml_ else None
 }
 
 
@@ -189,13 +196,14 @@ if __name__ == "__main__":
         config=hparams,  # either from config file or CLI specified hyperparameters
         project="LTA_SegmentWise",
         entity="behzadhaki",  # saves in the mmil_vae_cntd team account
-        settings=wandb.Settings(code_dir="scripts_archived/train_LTA_stepBystep.py"),
+        settings=wandb.Settings(code_dir="scripts_archived/train_LTA_stepBystep_no_vel_at_dec_input.py"),
+        name=hparams['run_name'] if hparams['run_name'] is not None else None
     )
 
     if loaded_via_config_yaml:
         model_code = wandb.Artifact("train_code_and_config", type="train_code_and_config")
         model_code.add_file(args.config)
-        model_code.add_file("train_LTA_stepBystep.py")
+        model_code.add_file("train_LTA_stepBystep_no_vel_at_dec_input.py")
         wandb.run.log_artifact(model_code)
 
     # Reset config to wandb.config (in case of sweeping with YAML necessary)
@@ -228,8 +236,8 @@ if __name__ == "__main__":
         shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
         max_input_bars=config['max_n_bars'],
         hop_n_bars=config['hop_n_bars'],
-        input_has_velocity=config['SegmentEncoder']['has_velocity'],
-        input_has_offsets=config['SegmentEncoder']['has_offset'],
+        input_has_velocity=True,
+        input_has_offsets=True,
         push_all_data_to_cuda=config['push_all_data_to_cuda']
     )
 
@@ -268,18 +276,43 @@ if __name__ == "__main__":
             mask[i, n_bars[i]:] = 1
         return mask
 
+    printed_vel_info_already = False
+
     # Batch Data IO Extractor
     def batch_data_extractor(data_, device=config.device):
+        global printed_vel_info_already
 
         bass_solo = data_[0].to(device) if data_[0].device.type != device else data_[0]
-        bass_solo[:, :, 1] = 0.0          # set vels to 0
+        n_bass_voices = bass_solo.shape[-1] // 3
+        if not config['SegmentEncoder']['has_velocity']:
+            bass_solo[:, :, n_bass_voices:2*n_bass_voices] = 0.0          # set vels to 0
+        if not config['SegmentEncoder']['has_offset']:
+            bass_solo[:, :, 2*n_bass_voices:] = 0.0          # set offsets
 
         drums = data_[1].to(device) if data_[1].device.type != device else data_[1]
 
         stacked_bass_drums = None #data_[2].to(device) if data_[2].device.type != device else data_[2]
 
         shifted_drums = data_[3].to(device) if data_[3].device.type != device else data_[3]
-        shifted_drums[:, :, 9:18] = 0.0         # set vels to 0
+
+        n_drum_voices = drums.shape[-1] // 3
+        if not config['DrumDecoder']['has_velocity']:
+            shifted_drums[:, :, n_drum_voices:2*n_drum_voices] = 0.0         # set vels to 0
+        if not config['DrumDecoder']['has_offset']:
+            shifted_drums[:, :, 2*n_drum_voices:] = 0.0         # set offsets
+
+        if not printed_vel_info_already:
+            print("##############################################")
+            print("Hit Sum Bass Solo: ", bass_solo[:, :, :n_bass_voices].sum())
+            print("Hit Sum Drums: ", drums[:, :, :n_drum_voices].sum())
+            print("")
+            print("Vel Sum Bass Solo: ", bass_solo[:, :, n_bass_voices:2*n_bass_voices].sum())
+            print("Vel Sum Drums: ", drums[:, :, n_drum_voices:2*n_drum_voices].sum())
+            print("")
+            print("Offset Sum Bass Solo: ", bass_solo[:, :, 2*n_bass_voices:].sum())
+            print("Offset Sum Drums: ", drums[:, :, 2*n_drum_voices:].sum())
+            print("##############################################")
+            printed_vel_info_already = True
 
         return bass_solo, drums, stacked_bass_drums, shifted_drums
 
@@ -332,6 +365,13 @@ if __name__ == "__main__":
         model_on_device.train()
 
         logger.info("***************************Training...")
+
+        if epoch < config.start_decoder_training_at_epoch:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>> Freezing the decoder <<<<<<<<<<<<<<<<<<<<<<<<")
+            model_on_device.freeze_decoder()
+        else:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>> Unfreezing the decoder <<<<<<<<<<<<<<<<<<<<<<<<")
+            model_on_device.unfreeze_decoder()
 
         train_log_metrics, step_ = train_utils.train_loop(
             train_dataloader=train_dataloader,

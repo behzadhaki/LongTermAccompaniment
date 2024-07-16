@@ -159,6 +159,13 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
         overlap = (predicted_hits != hit_targets) * 2
         hit_mask = overlap + 1
 
+        per_voice_mask = torch.ones_like(hit_mask)
+
+        # TOMS Weighted twice
+        per_voice_mask[:, :, 4:7] = 2
+
+        hit_mask = hit_mask * per_voice_mask
+        
         loss_h = loss_h * hit_mask
         loss_h = loss_h.mean()
 
