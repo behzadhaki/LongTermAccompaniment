@@ -1296,7 +1296,7 @@ class HVO_Sequence(object):
     #   Utilities to Synthesize the hvo score
     #   --------------------------------------------------------------
 
-    def synthesize(self, sr=44100, sf_path="../hvo_sequence/soundfonts/Standard_Drum_Kit.sf2"):
+    def synthesize(self, sr=44100, sf_path="../hvo_sequence/soundfonts/Standard_Drum_Kit.sf2", track_n=9):
         """
         Synthesizes the hvo_sequence to audio using a provided sound font
         @param sr:                          sample rate
@@ -1309,7 +1309,7 @@ class HVO_Sequence(object):
             return None
 
         if _CAN_SYNTHESIZE and _HAS_NOTE_SEQ:
-            ns = self.to_note_sequence(midi_track_n=9)
+            ns = self.to_note_sequence(midi_track_n=track_n)
             pm = note_seq.note_sequence_to_pretty_midi(ns)
             audio = pm.fluidsynth(fs=sr, sf2_path=sf_path)
         else:
@@ -1319,7 +1319,7 @@ class HVO_Sequence(object):
         return audio
 
     def save_audio(self, filename="misc/temp.wav", sr=44100,
-                   sf_path="../hvo_sequence/soundfonts/Standard_Drum_Kit.sf2"):
+                   sf_path="../hvo_sequence/soundfonts/Standard_Drum_Kit.sf2", track_n=9):
         """
         Synthesizes and saves the hvo_sequence to audio using a provided sound font
         @param filename:                    filename/path used for saving the audio
@@ -1332,7 +1332,7 @@ class HVO_Sequence(object):
             return None
 
         if _CAN_SYNTHESIZE and _HAS_NOTE_SEQ:
-            ns = self.to_note_sequence(midi_track_n=9)
+            ns = self.to_note_sequence(midi_track_n=track_n)
             pm = note_seq.note_sequence_to_pretty_midi(ns)
             audio = pm.fluidsynth(sf2_path=sf_path, fs=sr)
             # save audio using scipy

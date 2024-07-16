@@ -657,20 +657,16 @@ class PairedLTADatasetV2(Dataset):
                  shift_tgt_by_n_steps=1,
                  max_input_bars=32,
                  hop_n_bars=2,
-                 input_has_velocity=True,
-                 input_has_offsets=True,
                  push_all_data_to_cuda=False):
 
         self.max_input_bars = max_input_bars
         self.hop_n_bars = hop_n_bars
-        self.input_has_velocity = input_has_velocity
-        self.input_has_offsets = input_has_offsets
 
         def get_cached_filepath():
             dir_ = "cached/TorchDatasets"
             filename = (
                 f"PairedLTADatasetV2_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
-                f"_{max_input_bars}_{hop_n_bars}_{input_has_velocity}_{input_has_offsets}_{shift_tgt_by_n_steps}.bz2pickle")
+                f"_{max_input_bars}_{hop_n_bars}_{shift_tgt_by_n_steps}.bz2pickle")
             if not os.path.exists(dir_):
                 os.makedirs(dir_)
             return os.path.join(dir_, filename)
@@ -760,7 +756,7 @@ class PairedLTADatasetV2(Dataset):
                     i2_seg = i2.hvo[ts_:te_]
 
                     if i1_seg.shape[0] == max_input_bars * 16:
-                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, input_has_velocity, input_has_offsets)
+                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, True, True)
                         inst1_hvos.append(i1_seg)
                         inst2_hvos.append(i2_seg)
                         inst1and2_hvos.append(i1_2_stack)
@@ -835,9 +831,7 @@ if __name__ == "__main__":
     #     output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
     #     shift_tgt_by_n_steps=1,
     #     input_bars=32,
-    #     hop_n_bars=2,
-    #     input_has_velocity=True,
-    #     input_has_offsets=True
+    #     hop_n_bars=2
     # )
 
     from data import PairedLTADataset
@@ -848,9 +842,7 @@ if __name__ == "__main__":
         shift_tgt_by_n_steps=1,
         max_input_bars=32,
         continuation_bars=2,
-        hop_n_bars=1,
-        input_has_velocity=True,
-        input_has_offsets=True
+        hop_n_bars=1
     )
 
     test_dataset.show_hit_density_histogram(n_bins=100)
@@ -861,9 +853,7 @@ if __name__ == "__main__":
         shift_tgt_by_n_steps=1,
         max_input_bars=32,
         continuation_bars=2,
-        hop_n_bars=1,
-        input_has_velocity=True,
-        input_has_offsets=True
+        hop_n_bars=1
     )
 
     train_dataset.show_hit_density_histogram(n_bins=100)

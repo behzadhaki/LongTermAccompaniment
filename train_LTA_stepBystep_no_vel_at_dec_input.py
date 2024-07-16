@@ -223,8 +223,6 @@ if __name__ == "__main__":
         shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
         max_input_bars=config['max_n_bars'],
         hop_n_bars=config['hop_n_bars'],
-        input_has_velocity=config['SegmentEncoder']['has_velocity'],
-        input_has_offsets=config['SegmentEncoder']['has_offset'],
         push_all_data_to_cuda=config['push_all_data_to_cuda']
     )
     train_dataloader = DataLoader(training_dataset, batch_size=config.batch_size, shuffle=True)
@@ -236,8 +234,6 @@ if __name__ == "__main__":
         shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
         max_input_bars=config['max_n_bars'],
         hop_n_bars=config['hop_n_bars'],
-        input_has_velocity=True,
-        input_has_offsets=True,
         push_all_data_to_cuda=config['push_all_data_to_cuda']
     )
 
@@ -285,13 +281,13 @@ if __name__ == "__main__":
         bass_solo = data_[0].to(device) if data_[0].device.type != device else data_[0]
         n_bass_voices = bass_solo.shape[-1] // 3
         if not config['SegmentEncoder']['has_velocity']:
-            bass_solo[:, :, n_bass_voices:2*n_bass_voices] = 0.0          # set vels to 0
+            bass_solo[:, :, n_bass_voices:2*n_bass_voices] = 0.0            # set vels to 0
         if not config['SegmentEncoder']['has_offset']:
-            bass_solo[:, :, 2*n_bass_voices:] = 0.0          # set offsets
+            bass_solo[:, :, 2*n_bass_voices:] = 0.0                         # set offsets
 
         drums = data_[1].to(device) if data_[1].device.type != device else data_[1]
 
-        stacked_bass_drums = None #data_[2].to(device) if data_[2].device.type != device else data_[2]
+        stacked_bass_drums = None   # data_[2].to(device) if data_[2].device.type != device else data_[2]
 
         shifted_drums = data_[3].to(device) if data_[3].device.type != device else data_[3]
 
@@ -305,12 +301,15 @@ if __name__ == "__main__":
             print("##############################################")
             print("Hit Sum Bass Solo: ", bass_solo[:, :, :n_bass_voices].sum())
             print("Hit Sum Drums: ", drums[:, :, :n_drum_voices].sum())
+            print("Hit Sum Shifted Drums: ", shifted_drums[:, :, :n_drum_voices].sum())
             print("")
             print("Vel Sum Bass Solo: ", bass_solo[:, :, n_bass_voices:2*n_bass_voices].sum())
             print("Vel Sum Drums: ", drums[:, :, n_drum_voices:2*n_drum_voices].sum())
+            print("Vel Sum Shifted Drums: ", shifted_drums[:, :, n_drum_voices:2*n_drum_voices].sum())
             print("")
             print("Offset Sum Bass Solo: ", bass_solo[:, :, 2*n_bass_voices:].sum())
             print("Offset Sum Drums: ", drums[:, :, 2*n_drum_voices:].sum())
+            print("Offset Sum Shifted Drums: ", shifted_drums[:, :, 2*n_drum_voices:].sum())
             print("##############################################")
             printed_vel_info_already = True
 
