@@ -46,7 +46,7 @@ input_inst_dataset_bz2_filepath_train: "data/lmd/data_bass_groove_train.bz2"
 output_inst_dataset_bz2_filepath_train: "data/lmd/data_drums_full_unsplit.bz2"
 input_inst_dataset_bz2_filepath_test: "data/lmd/data_bass_groove_test.bz2"
 output_inst_dataset_bz2_filepath_test: "data/lmd/data_drums_full_unsplit.bz2"
-shift_tgt_by_n_steps: 16
+shift_tgt_by_n_steps: 1
 hop_n_bars: 8
 
 upload_to_wandb: true
