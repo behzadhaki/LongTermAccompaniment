@@ -1296,7 +1296,7 @@ class HVO_Sequence(object):
     #   Utilities to Synthesize the hvo score
     #   --------------------------------------------------------------
 
-    def synthesize(self, sr=44100, sf_path="../hvo_sequence/soundfonts/Standard_Drum_Kit.sf2", track_n=9):
+    def synthesize(self, sr=44100, sf_path="../hvo_sequence/soundfonts/Standard_Drum_Kit.sf2", track_n=9, program=0):
         """
         Synthesizes the hvo_sequence to audio using a provided sound font
         @param sr:                          sample rate
@@ -1311,6 +1311,10 @@ class HVO_Sequence(object):
         if _CAN_SYNTHESIZE and _HAS_NOTE_SEQ:
             ns = self.to_note_sequence(midi_track_n=track_n)
             pm = note_seq.note_sequence_to_pretty_midi(ns)
+            # set program number for drums
+            for instrument in pm.instruments:
+                instrument.program = 0
+
             audio = pm.fluidsynth(fs=sr, sf2_path=sf_path)
         else:
             audio = [0.0]*44100
