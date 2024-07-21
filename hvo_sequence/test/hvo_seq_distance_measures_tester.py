@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     # Create a random hvo
     hits = np.random.randint(0, 2, (n_steps, n_voices))
-    # vels = hits_upcoming_playback * np.random.rand(n_steps, n_voices)
+    # vels = hits_upcoming_playback * np.random.rand(n_segments, n_voices)
     vels = hits * np.random.rand(n_steps, n_voices)
     offs = hits * (np.random.rand(n_steps, n_voices) - 0.5)
 

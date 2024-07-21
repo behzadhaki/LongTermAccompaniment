@@ -256,7 +256,7 @@ def _get_2bar_segments(part, steps_in_measure):
     returns a list of np.array each element of which is a 2bar part
     Pads and replicates if len adjustment is needed
     """
-    part = part.reshape(-1, 1) if part.ndim == 1 else part  # reshape to (n_steps, 1)
+    part = part.reshape(-1, 1) if part.ndim == 1 else part  # reshape to (n_segments, 1)
 
     # first make_sure_length_is_multiple of 16, if not append zero arrays
     if part.shape[0] % steps_in_measure != 0:

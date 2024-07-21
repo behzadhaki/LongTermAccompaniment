@@ -329,7 +329,7 @@ class GridMaker:
             'beat_division_factors': self.__beat_division_factors,
             'tempos': self.__tempos,
             'time_signatures': self.__time_signatures,
-            'n_steps': self.__n_steps,
+            'n_segments': self.__n_steps,
         }
         return state
 
@@ -337,7 +337,7 @@ class GridMaker:
         self.__beat_division_factors = state['beat_division_factors']
         self.__tempos = state['tempos']
         self.__time_signatures = state['time_signatures']
-        self.__n_steps = state['n_steps']
+        self.__n_steps = state['n_segments']
 
         # Constructed per segment after unpickling
         # ------------------------------------------------------------------------------------------------
@@ -414,11 +414,11 @@ class GridMaker:
     @n_steps.setter
     def n_steps(self, n_steps):
         """adjusts the number of steps in the grid.
-        Ensures that (1) snaps n_steps to nest available beat, (2) ensure resulting grid steps are at least 1 bar after
+        Ensures that (1) snaps n_segments to nest available beat, (2) ensure resulting grid steps are at least 1 bar after
         the last time signature change
         """
-        assert int(n_steps) == n_steps, "n_steps must be an integer"
-        assert n_steps > 0, "n_steps must be greater than 0"
+        assert int(n_steps) == n_steps, "n_segments must be an integer"
+        assert n_steps > 0, "n_segments must be greater than 0"
         # make sure aligns on beat
         n_steps = math.ceil(n_steps / self.__n_steps_per_beat) * self.__n_steps_per_beat
 

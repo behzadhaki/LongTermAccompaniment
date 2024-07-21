@@ -366,10 +366,280 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         # inference only utils
         self.encoded_segments = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
         self.performance_memory = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
-        self.num_beats_encoded_so_far = 0
+        self.num_segments_encoded_so_far = 0
+        self.shifted_tgt = torch.zeros((1, self.config['DrumDecoder']['max_steps'], 3 * self.config['DrumDecoder']['n_tgt_voices']))
+        self.generations = torch.zeros((1, self.config['DrumDecoder']['max_steps'], 3 * self.config['DrumDecoder']['n_tgt_voices']))
 
         self.max_tgt_steps = self.config['DrumDecoder']['max_steps']
         self.num_tgt_voices = self.config['DrumDecoder']['n_tgt_voices']
+
+        # new variables post training (might be missing in the serialized/saved models)
+        self.input_has_velocity = self.SegmentEncoder.has_velocity
+        self.decoder_input_has_velocity = self.DrumDecoder.config['has_velocity']
+
+        # sampling parameters
+        self.kick_is_muted = False
+        self.snare_is_muted = False
+        self.hihat_is_muted = False
+        self.tom_is_muted = False
+        self.crash_is_muted = False
+        self.ride_is_muted = False
+        self.temperature = 1.0
+        self.primed_for_N_segments = 0
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # drop the tensors
+        del state['encoded_segments']
+        del state['performance_memory']
+        del state['shifted_tgt']
+        del state['generations']
+        del state['per_voice_thresholds']
+
+        # sampling parameters
+        self.kick_is_muted = False
+        self.snare_is_muted = False
+        self.hihat_is_muted = False
+        self.tom_is_muted = False
+        self.crash_is_muted = False
+        self.ride_is_muted = False
+        self.temperature = 1.0
+        
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if 'input_has_velocity' not in self.__dict__:
+            self.input_has_velocity = self.SegmentEncoder.has_velocity
+        if 'decoder_input_has_velocity' not in self.__dict__:
+            self.decoder_input_has_velocity = self.DrumDecoder.config['has_velocity']
+        if 'num_beats_encoded_so_far' in self.__dict__:
+            self.num_segments_encoded_so_far = self.num_segments_encoded_so_far
+            del self.num_segments_encoded_so_far
+        # create the tensors
+        self.encoded_segments = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
+        self.performance_memory = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
+        self.shifted_tgt = torch.zeros((1, self.config['DrumDecoder']['max_steps']+1, 3 * self.config['DrumDecoder']['n_tgt_voices']))
+        self.generations = torch.zeros((1, self.config['DrumDecoder']['max_steps'], 3 * self.config['DrumDecoder']['n_tgt_voices']))
+
+    @torch.jit.export
+    def mute_voice(self, voice: str):
+        if 'kick' in voice.lower():
+            self.kick_is_muted = True
+        elif 'snare' in voice.lower():
+            self.snare_is_muted = True
+        elif 'hat' in voice.lower():
+            self.hihat_is_muted = True
+        elif 'tom' in voice.lower():
+            self.tom_is_muted = True
+        elif 'crash' in voice.lower():
+            self.crash_is_muted = True
+        elif 'ride' in voice.lower():
+            self.ride_is_muted = True
+
+    @torch.jit.export
+    def unmute_voice(self, voice: str):
+        if 'kick' in voice.lower():
+            self.kick_is_muted = False
+        elif 'snare' in voice.lower():
+            self.snare_is_muted = False
+        elif 'hat' in voice.lower():
+            self.hihat_is_muted = False
+        elif 'tom' in voice.lower():
+            self.tom_is_muted = False
+        elif 'crash' in voice.lower():
+            self.crash_is_muted = False
+        elif 'ride' in voice.lower():
+            self.ride_is_muted = False
+
+    @torch.jit.export
+    def generate_random_pattern(self, n_bars: int=2, threshold: float=0.05,
+                                temperature: float=1.0, no_kick: bool=False, no_snare: bool=False, no_hihat: bool=False,
+                                no_toms: bool=False, no_crash: bool=False, no_ride: bool=False):
+
+        # generate random segment embeddings
+        rand_segment_embs = torch.rand((1, n_bars, self.encoder_d_model))
+        performance_memory = self.PerformanceEncoder.forward(rand_segment_embs)
+
+        if temperature <= 0.000001:
+            temperature = 0.000001
+
+        n_iters = n_bars * 16
+
+        hvo_shifted = torch.zeros((1, n_iters+1, self.num_tgt_voices * 3))
+        generated_hvo = torch.zeros((1, n_iters, self.num_tgt_voices * 3))
+
+        with torch.no_grad():
+
+            for i in range(n_iters):
+
+                h_logits, v_logits, o_logits = self.DrumDecoder.forward(
+                    tgt=hvo_shifted[:, :i+1, :],
+                    memory=performance_memory
+                )
+
+                h_logits = h_logits / temperature
+                h_ = torch.sigmoid(h_logits[:, i, :])
+
+                # bernoulli sampling
+                v_ = torch.clamp(((torch.tanh(v_logits[:, i, :]) + 1.0) / 2), 0.0, 1.0)
+                o_ = torch.tanh(o_logits[:, i, :])
+
+                h_ = torch.where(h_ < threshold, 0.0, h_)
+                h_ = torch.bernoulli(h_)
+
+                if no_kick:
+                    h_[:, :, 0::9] = 0
+                if no_snare:
+                    h_[:, :, 1::9] = 0
+                if no_hihat:
+                    h_[:, :, 2::9] = 0
+                    h_[:, :, 3::9] = 0
+                if no_toms:
+                    h_[:, :, 4::9] = 0
+                    h_[:, :, 5::9] = 0
+                    h_[:, :, 6::9] = 0
+                if no_crash:
+                    h_[:, :, 7::9] = 0
+                if no_ride:
+                    h_[:, :, 8::9] = 0
+
+                generated_hvo[:, i, :] = torch.cat((h_, v_, o_), dim=-1)
+
+                if not self.decoder_input_has_velocity:
+                    v_ = torch.ones_like(v_) * 0
+
+                hvo_shifted[:, i+1, :] = torch.cat((h_, v_, o_), dim=-1)
+
+        return generated_hvo
+
+    @torch.jit.export
+    def reset_all(self):
+        self.encoded_segments = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
+        self.performance_memory = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
+        self.shifted_tgt *= 0
+        self.generations *= 0
+        self.num_segments_encoded_so_far = 0
+
+
+    @torch.jit.export
+    def shift_left_by(self, n_segments: int, ensure_start_is_bar_boundary: bool=True):
+        if ensure_start_is_bar_boundary:
+            n_segments_per_bar = 16 // self.n_steps_per_segment
+            # make large enough to ensure the start is a bar boundary
+            if n_segments % n_segments_per_bar != 0:
+                n_segments = int(n_segments//n_segments_per_bar + 1) * n_segments_per_bar
+
+        self.encoded_segments = torch.roll(self.encoded_segments, shifts=-n_segments, dims=1)
+        self.encoded_segments[:, self.num_segments_encoded_so_far - n_segments:, :] = 0
+        self.performance_memory = torch.roll(self.performance_memory, shifts=-n_segments, dims=1)
+        self.performance_memory[:, self.num_segments_encoded_so_far - n_segments:, :] = 0
+        self.num_segments_encoded_so_far -= n_segments
+        self.shifted_tgt = torch.roll(self.shifted_tgt, shifts=-n_segments * self.n_steps_per_segment, dims=1)
+        self.shifted_tgt[:, self.max_tgt_steps - n_segments * self.n_steps_per_segment:, :] = 0
+        self.shifted_tgt[:, 0, :] = 0 # start token
+        self.generations = torch.roll(self.generations, shifts=-n_segments * self.n_steps_per_segment, dims=1)
+        self.generations[:, self.max_tgt_steps - n_segments * self.n_steps_per_segment:, :] = 0
+
+    @torch.jit.export
+    def encode_input_performance(self, hvo: torch.Tensor):
+        with torch.no_grad():
+            if hvo.shape[1] % self.n_steps_per_segment != 0:
+                print("The input performance must be a multiple of the number of steps per segment")
+                print("Zero padding will be added to the end of the performance to make it a multiple of the number of steps per segment")
+                n_pad = self.n_steps_per_segment - (hvo.shape[1] % self.n_steps_per_segment)
+                hvo = torch.cat((hvo, torch.zeros((hvo.shape[0], n_pad, hvo.shape[2]), device=hvo.device)), dim=1)
+
+            n_segments = int(hvo.shape[1] / self.n_steps_per_segment)
+
+            if n_segments > self.max_n_segments:
+                print("Pattern is larger than the allowed maximum - will be truncated to the maximum allowed")
+                hvo = hvo[:, :self.max_n_segments * self.n_steps_per_segment, :]
+
+            if n_segments + self.num_segments_encoded_so_far > self.max_n_segments:
+                shift_by_amount = n_segments + self.num_segments_encoded_so_far - self.max_n_segments
+                self.shift_left_by(shift_by_amount, ensure_start_is_bar_boundary=True)
+                # self.performance_memory = self.performance_memory[:, shift_by:, :]
+
+            for i in range(n_segments):
+                self.encoded_segments[:, self.num_segments_encoded_so_far + i, :] = self.SegmentEncoder.forward(
+                    src=hvo[:, i * self.n_steps_per_segment: (i + 1) * self.n_steps_per_segment, :])
+
+            self.num_segments_encoded_so_far += n_segments
+
+            self.performance_memory[:, :self.num_segments_encoded_so_far, :] = self.PerformanceEncoder.forward(
+                src_rhythm_encodings=self.encoded_segments[:, :self.num_segments_encoded_so_far, :])
+
+    @torch.jit.export
+    def prime_with_drums(self, hvo: torch.Tensor):
+        self.reset_all()
+        n_steps = hvo.shape[1]
+        if n_steps % 16 != 0:
+            print("The priming pattern must be flushed to a bar boundary - will be truncated to the last bar boundary")
+            n_steps = int(n_steps // 16) * 16
+            hvo = hvo[:, :n_steps, :]
+
+        self.primed_for_N_segments = n_steps // self.n_steps_per_segment
+
+        self.generations[:, :n_steps, :] = hvo.clone()
+        self.shifted_tgt[:, 1:n_steps+1, :] = hvo.clone()
+
+
+    @torch.jit.export
+    def predict_next_K_bars(self, roll_to_start_at_bar_boundary: bool=True, threshold: float=0.05):
+
+        for i in range(self.predict_K_bars_ahead * 16):
+
+            if i >= self.primed_for_N_segments * self.n_steps_per_segment:
+
+                h_logits, v_logits, o_logits = self.DrumDecoder.forward(
+                    tgt=self.shifted_tgt[:, :i+1, :],
+                    memory=self.performance_memory[:, :self.num_segments_encoded_so_far, :]
+                )
+
+                h_logits = h_logits[:, i, :] / self.temperature
+                h = torch.sigmoid(h_logits[:, -1, :])
+
+                # bernoulli sampling
+                v = torch.clamp(((torch.tanh(v_logits[:, i, :]) + 1.0) / 2), 0.0, 1.0)
+                o = torch.tanh(o_logits[:, i, :])
+
+                if not self.decoder_input_has_velocity:
+                    v = torch.ones_like(v) * 0
+
+                h = torch.where(h < threshold, 0.0, h)
+                h = torch.bernoulli(h)
+
+                if self.kick_is_muted:
+                    h[:, 0::9] = 0
+                if self.snare_is_muted:
+                    h[:, 1::9] = 0
+                if self.hihat_is_muted:
+                    h[:, 2::9] = 0
+                    h[:, 3::9] = 0
+                if self.tom_is_muted:
+                    h[:, 4::9] = 0
+                    h[:, 5::9] = 0
+                    h[:, 6::9] = 0
+                if self.crash_is_muted:
+                    h[:, 7::9] = 0
+                if self.ride_is_muted:
+                    h[:, 8::9] = 0
+
+                self.generations[:, i, :] = torch.cat((h, v, o), dim=-1)
+                self.shifted_tgt[:, i+1, :] = torch.cat((h, v, o), dim=-1)
+
+            else:
+                print("Within the priming range - skipping")
+
+        start_i = self.num_segments_encoded_so_far*self.n_steps_per_segment
+        print("start_i: ", start_i)
+        gen = self.generations[:, start_i:start_i+self.predict_K_bars_ahead * 16, :].clone()
+        if roll_to_start_at_bar_boundary and start_i % 16 != 0:
+            print("Rolling to start at bar boundary ", 16 - (start_i % 16))
+            return torch.roll(gen, shifts=-(16 - (start_i % 16)), dims=1)
+
+        return gen
 
     @torch.jit.ignore
     def freeze_decoder(self):
