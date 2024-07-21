@@ -570,6 +570,7 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
             self.performance_memory[:, :self.num_segments_encoded_so_far, :] = self.PerformanceEncoder.forward(
                 src_rhythm_encodings=self.encoded_segments[:, :self.num_segments_encoded_so_far, :])
 
+
     @torch.jit.export
     def prime_with_drums(self, hvo: torch.Tensor):
         self.reset_all()
@@ -588,58 +589,59 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
     @torch.jit.export
     def predict_next_K_bars(self, roll_to_start_at_bar_boundary: bool=True, threshold: float=0.05):
 
-        for i in range(self.predict_K_bars_ahead * 16):
+        with torch.no_grad():
+            for i in range(self.predict_K_bars_ahead * 16):
 
-            if i >= self.primed_for_N_segments * self.n_steps_per_segment:
+                if i >= self.primed_for_N_segments * self.n_steps_per_segment:
 
-                h_logits, v_logits, o_logits = self.DrumDecoder.forward(
-                    tgt=self.shifted_tgt[:, :i+1, :],
-                    memory=self.performance_memory[:, :self.num_segments_encoded_so_far, :]
-                )
+                    h_logits, v_logits, o_logits = self.DrumDecoder.forward(
+                        tgt=self.shifted_tgt[:, :i+1, :],
+                        memory=self.performance_memory[:, :self.num_segments_encoded_so_far, :]
+                    )
 
-                h_logits = h_logits[:, i, :] / self.temperature
-                h = torch.sigmoid(h_logits[:, -1, :])
+                    h_logits = h_logits[:, i, :] / self.temperature
+                    h = torch.sigmoid(h_logits[:, -1, :])
 
-                # bernoulli sampling
-                v = torch.clamp(((torch.tanh(v_logits[:, i, :]) + 1.0) / 2), 0.0, 1.0)
-                o = torch.tanh(o_logits[:, i, :])
+                    # bernoulli sampling
+                    v = torch.clamp(((torch.tanh(v_logits[:, i, :]) + 1.0) / 2), 0.0, 1.0)
+                    o = torch.tanh(o_logits[:, i, :])
 
-                if not self.decoder_input_has_velocity:
-                    v = torch.ones_like(v) * 0
+                    if not self.decoder_input_has_velocity:
+                        v = torch.ones_like(v) * 0
 
-                h = torch.where(h < threshold, 0.0, h)
-                h = torch.bernoulli(h)
+                    h = torch.where(h < threshold, 0.0, h)
+                    h = torch.bernoulli(h)
 
-                if self.kick_is_muted:
-                    h[:, 0::9] = 0
-                if self.snare_is_muted:
-                    h[:, 1::9] = 0
-                if self.hihat_is_muted:
-                    h[:, 2::9] = 0
-                    h[:, 3::9] = 0
-                if self.tom_is_muted:
-                    h[:, 4::9] = 0
-                    h[:, 5::9] = 0
-                    h[:, 6::9] = 0
-                if self.crash_is_muted:
-                    h[:, 7::9] = 0
-                if self.ride_is_muted:
-                    h[:, 8::9] = 0
+                    if self.kick_is_muted:
+                        h[:, 0::9] = 0
+                    if self.snare_is_muted:
+                        h[:, 1::9] = 0
+                    if self.hihat_is_muted:
+                        h[:, 2::9] = 0
+                        h[:, 3::9] = 0
+                    if self.tom_is_muted:
+                        h[:, 4::9] = 0
+                        h[:, 5::9] = 0
+                        h[:, 6::9] = 0
+                    if self.crash_is_muted:
+                        h[:, 7::9] = 0
+                    if self.ride_is_muted:
+                        h[:, 8::9] = 0
 
-                self.generations[:, i, :] = torch.cat((h, v, o), dim=-1)
-                self.shifted_tgt[:, i+1, :] = torch.cat((h, v, o), dim=-1)
+                    self.generations[:, i, :] = torch.cat((h, v, o), dim=-1)
+                    self.shifted_tgt[:, i+1, :] = torch.cat((h, v, o), dim=-1)
 
-            else:
-                print("Within the priming range - skipping")
+                else:
+                    print("Within the priming range - skipping")
 
-        start_i = self.num_segments_encoded_so_far*self.n_steps_per_segment
-        print("start_i: ", start_i)
-        gen = self.generations[:, start_i:start_i+self.predict_K_bars_ahead * 16, :].clone()
-        if roll_to_start_at_bar_boundary and start_i % 16 != 0:
-            print("Rolling to start at bar boundary ", 16 - (start_i % 16))
-            return torch.roll(gen, shifts=-(16 - (start_i % 16)), dims=1)
+            start_i = self.num_segments_encoded_so_far*self.n_steps_per_segment
+            print("start_i: ", start_i)
+            gen = self.generations[:, start_i:start_i+self.predict_K_bars_ahead * 16, :].clone()
+            if roll_to_start_at_bar_boundary and start_i % 16 != 0:
+                print("Rolling to start at bar boundary ", 16 - (start_i % 16))
+                return torch.roll(gen, shifts=-(16 - (start_i % 16)), dims=1)
 
-        return gen
+            return gen
 
     @torch.jit.ignore
     def freeze_decoder(self):
