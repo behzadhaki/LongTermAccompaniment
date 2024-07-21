@@ -337,7 +337,7 @@ class GridMaker:
         self.__beat_division_factors = state['beat_division_factors']
         self.__tempos = state['tempos']
         self.__time_signatures = state['time_signatures']
-        self.__n_steps = state['n_segments']
+        self.__n_steps = state['n_segments'] if 'n_segments' in state else 1
 
         # Constructed per segment after unpickling
         # ------------------------------------------------------------------------------------------------
