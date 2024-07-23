@@ -128,7 +128,7 @@ class PerformanceEncoder(torch.nn.Module):
 
             self.max_n_segments = self.config['max_n_segments']
 
-            self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(self.config['max_n_segments'])
+            self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(self.config['max_n_segments'], dtype=torch.bool)
 
 
             # self.Encoder = TransformerEncoder(
@@ -141,7 +141,16 @@ class PerformanceEncoder(torch.nn.Module):
             #     max_len=self.config['max_n_segments']
             # )
 
+        def __getstate__(self):
+            state = self.__dict__.copy()
+            # drop the tensors
+            del state['causal_mask']
 
+            return state
+
+        def __setstate__(self, state):
+            self.__dict__.update(state)
+            self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(self.config['max_n_segments'], dtype=torch.bool)
 
         @torch.jit.export
         def forward(self, src_rhythm_encodings: torch.Tensor):
@@ -210,8 +219,8 @@ def generate_memory_mask(input_steps, output_steps):
     return mask.transpose(0, 1)
 
 def generate_memory_mask_for_K_bars_ahead_prediction(input_steps, output_steps, predict_K_bars_ahead, segment_length):
-    mask = torch.ones((output_steps, int(input_steps//segment_length)))
-    mask = mask * -float('inf')
+    mask = torch.ones((output_steps, int(input_steps//segment_length)), dtype=torch.bool)
+    # mask = mask * -float('inf')
 
     n_segments_per_bar = 16 // segment_length
     max_look_back_segments = predict_K_bars_ahead * n_segments_per_bar
@@ -274,7 +283,7 @@ class DrumDecoder(torch.nn.Module):
                 d_model=self.config['d_model'],
             )
 
-            self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(self.config['max_steps'])
+            self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(self.config['max_steps'], dtype=torch.bool)
 
             self.input_segments = config['PerformanceEncoder']['max_n_segments']
 
@@ -285,6 +294,23 @@ class DrumDecoder(torch.nn.Module):
                 segment_length=config['SegmentEncoder']['steps_per_segment'])
 
             self.performance_encoder_input_steps = config['SegmentEncoder']
+
+        def __getstate__(self):
+            state = self.__dict__.copy()
+            # drop the tensors
+            del state['causal_mask']
+            del state['memory_mask']
+
+            return state
+
+        def __setstate__(self, state):
+            self.__dict__.update(state)
+            self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(self.config['max_steps'], dtype=torch.bool)
+            self.memory_mask = generate_memory_mask_for_K_bars_ahead_prediction(
+                input_steps=self.input_segments * self.performance_encoder_input_steps['steps_per_segment'],
+                output_steps=self.config['max_steps'],
+                predict_K_bars_ahead=self.config['predict_K_bars_ahead'],
+                segment_length=self.performance_encoder_input_steps['steps_per_segment'])
 
         @torch.jit.export
         def forward(self, tgt: torch.Tensor, memory: torch.Tensor):
