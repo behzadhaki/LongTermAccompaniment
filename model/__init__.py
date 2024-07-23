@@ -133,7 +133,7 @@ class TransformerEncoder(torch.nn.Module):
             num_layers=num_encoder_layers,
             norm=norm_encoder)
 
-        self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(max_len)
+        self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(max_len, dtype=torch.bool)
 
     # def generate_square_subsequent_mask(self, sz, device):
     #     mask = (torch.triu(torch.ones((sz, sz), device=device)) == 1).transpose(0, 1)
