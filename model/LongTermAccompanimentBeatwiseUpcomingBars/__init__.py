@@ -386,7 +386,8 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         self.ride_is_muted = False
         self.temperature = 1.0
         self.primed_for_N_segments = 0
-
+        self.num_generated_steps_available = 0
+        self.total_shifts = 0
     def __getstate__(self):
         state = self.__dict__.copy()
         # drop the tensors
@@ -395,16 +396,19 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         del state['shifted_tgt']
         del state['generations']
         del state['per_voice_thresholds']
+        del state['num_generated_steps_available']
+        del state['total_shifts']
 
         # sampling parameters
-        self.kick_is_muted = False
-        self.snare_is_muted = False
-        self.hihat_is_muted = False
-        self.tom_is_muted = False
-        self.crash_is_muted = False
-        self.ride_is_muted = False
-        self.temperature = 1.0
-        
+        state['kick_is_muted'] =  False
+        state['snare_is_muted'] = False
+        state['hihat_is_muted'] = False
+        state['tom_is_muted'] = False
+        state['crash_is_muted'] = False
+        state['ride_is_muted'] = False
+        state['temperature'] = 1.0
+
+
         return state
 
     def __setstate__(self, state):
@@ -419,8 +423,10 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         # create the tensors
         self.encoded_segments = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
         self.performance_memory = torch.zeros((1, self.max_n_segments, self.encoder_d_model))
-        self.shifted_tgt = torch.zeros((1, self.config['DrumDecoder']['max_steps']+1, 3 * self.config['DrumDecoder']['n_tgt_voices']))
-        self.generations = torch.zeros((1, self.config['DrumDecoder']['max_steps'], 3 * self.config['DrumDecoder']['n_tgt_voices']))
+        self.shifted_tgt = torch.zeros((1, self.config['DrumDecoder']['max_steps']+32+1, 3 * self.config['DrumDecoder']['n_tgt_voices']))
+        self.generations = torch.zeros((1, self.config['DrumDecoder']['max_steps']+32, 3 * self.config['DrumDecoder']['n_tgt_voices']))
+        self.num_generated_steps_available = 0
+        self.total_shifts = 0
 
     @torch.jit.export
     def mute_voice(self, voice: str):
@@ -520,15 +526,20 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         self.shifted_tgt *= 0
         self.generations *= 0
         self.num_segments_encoded_so_far = 0
+        self.num_generated_steps_available = 0
+        self.total_shifts = 0
 
 
     @torch.jit.export
     def shift_left_by(self, n_segments: int, ensure_start_is_bar_boundary: bool=True):
+
         if ensure_start_is_bar_boundary:
             n_segments_per_bar = 16 // self.n_steps_per_segment
             # make large enough to ensure the start is a bar boundary
             if n_segments % n_segments_per_bar != 0:
                 n_segments = int(n_segments//n_segments_per_bar + 1) * n_segments_per_bar
+
+        self.total_shifts += n_segments * self.n_steps_per_segment
 
         self.encoded_segments = torch.roll(self.encoded_segments, shifts=-n_segments, dims=1)
         self.encoded_segments[:, self.num_segments_encoded_so_far - n_segments:, :] = 0
@@ -540,10 +551,12 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         self.shifted_tgt[:, 0, :] = 0 # start token
         self.generations = torch.roll(self.generations, shifts=-n_segments * self.n_steps_per_segment, dims=1)
         self.generations[:, self.max_tgt_steps - n_segments * self.n_steps_per_segment:, :] = 0
+        self.num_generated_steps_available = max(0, self.num_generated_steps_available - n_segments * self.n_steps_per_segment)
 
     @torch.jit.export
     def encode_input_performance(self, hvo_: torch.Tensor):
         hvo = hvo_.clone()
+        num_segments_per_bar = 16 // self.n_steps_per_segment
 
         if len(hvo.shape) == 2:
             # add batch dimension
@@ -561,8 +574,9 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
 
             n_segments = int(hvo.shape[1] / self.n_steps_per_segment)
 
-            if n_segments + self.num_segments_encoded_so_far > self.max_n_segments:
-                shift_by_amount = n_segments + self.num_segments_encoded_so_far - self.max_n_segments
+            if n_segments + self.num_segments_encoded_so_far + num_segments_per_bar * self.predict_K_bars_ahead > self.max_n_segments: # add an extra bar for shifting
+                shift_by_amount = 8 * 16 // self.n_steps_per_segment # add an extra 8bars for shifting
+                print("SHIFTING THE MEMORY TO THE LEFT BY", shift_by_amount, "SEGMENTS")
                 self.shift_left_by(shift_by_amount, ensure_start_is_bar_boundary=True)
                 # self.performance_memory = self.performance_memory[:, shift_by:, :]
 
@@ -594,26 +608,36 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         self.generations[:, :n_steps, :] = hvo.clone()
         self.shifted_tgt[:, 1:n_steps+1, :] = hvo.clone()
 
+    @torch.jit.export
+    def get_segments_encoded_so_far(self):
+        return self.num_segments_encoded_so_far
 
     @torch.jit.export
-    def predict_next_K_bars(self, roll_to_start_at_bar_boundary: bool=True, threshold: float=0.05):
-        n_segments_per_bar = 16 // self.n_steps_per_segment
+    def get_num_look_back_segments(self):
+        return self.predict_K_bars_ahead
 
-        # get max number of steps available for prediction
-        end_point = self.num_segments_encoded_so_far * self.n_steps_per_segment + self.predict_K_bars_ahead * 16
 
-        step_iters = self.predict_K_bars_ahead * 16 if end_point <= self.max_tgt_steps else self.max_tgt_steps - self.num_segments_encoded_so_far * self.n_steps_per_segment
+
+    @torch.jit.export
+    def predict_first_bar(self, threshold: float=0.05):
 
         with torch.no_grad():
-            for i_ in range(step_iters):
+            n_segments_per_bar = 16 // self.n_steps_per_segment
 
-                i = i_ + self.num_segments_encoded_so_far * self.n_steps_per_segment
+            if self.primed_for_N_segments > 0:
+                print("Nothing to generate - already primed for", self.primed_for_N_segments, "segments - returning first bar of the primed pattern")
+                return self.generations[:, :16, :]
 
-                if i >= self.primed_for_N_segments * self.n_steps_per_segment:
+            # should have all necessary segments for the first bar
+            if self.num_segments_encoded_so_far < n_segments_per_bar:
+                print("Too soon to generate a pattern - please provide more input - So far only", self.num_segments_encoded_so_far, "segments have been encoded")
+                return torch.zeros((1, 16, 3 * self.num_tgt_voices))
+
+            for i in range(16):
 
                     h_logits, v_logits, o_logits = self.DrumDecoder.forward(
                         tgt=self.shifted_tgt[:, :i+1, :],
-                        memory=self.performance_memory[:, :self.num_segments_encoded_so_far, :]
+                        memory=self.performance_memory[:, :n_segments_per_bar, :]   # provide all segments encoded so far
                     )
 
                     h_logits = h_logits[:, i, :] / self.temperature
@@ -649,14 +673,161 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
                     else:
                         self.shifted_tgt[:, i+1, :] = torch.cat((h, torch.zeros_like(v) * 0, o), dim=-1)
 
-            start_i = self.num_segments_encoded_so_far*self.n_steps_per_segment
-            print("self.num_segments_encoded_so_far", self.num_segments_encoded_so_far, "start_i", start_i)
+            return self.generations[:, :16, :]
 
-            gen = self.generations[:, start_i:start_i+self.predict_K_bars_ahead * 16, :].clone()
-            if roll_to_start_at_bar_boundary and start_i % 16 != 0:
-                return torch.roll(gen, shifts=-(16 - (start_i % 16)), dims=1)
+    @torch.jit.export
+    def predict_n_steps_without_safety_checks(self, start_: int, n_steps_:int, threshold: float = 0.05):
+        """
+        only used internally in the following method! DO NOT USE in DEPLOYMENT
+        """
+        with torch.no_grad():
+            for i in range(start_, start_ + n_steps_):
 
-            return gen
+                h_logits, v_logits, o_logits = self.DrumDecoder.forward(
+                    tgt=self.shifted_tgt[:, :i + 1, :],
+                    memory=self.performance_memory[:, :self.num_segments_encoded_so_far, :]
+                )
+
+                h_logits = h_logits[:, i, :] / self.temperature
+                h = torch.sigmoid(h_logits)
+
+                # bernoulli sampling
+                v = torch.clamp(((torch.tanh(v_logits[:, i, :]) + 1.0) / 2), 0.0, 1.0)
+                o = torch.tanh(o_logits[:, i, :])
+
+                h = torch.where(h < threshold, 0.0, h)
+                h = torch.bernoulli(h)
+
+                if self.kick_is_muted:
+                    h[:, 0::9] = 0
+                if self.snare_is_muted:
+                    h[:, 1::9] = 0
+                if self.hihat_is_muted:
+                    h[:, 2::9] = 0
+                    h[:, 3::9] = 0
+                if self.tom_is_muted:
+                    h[:, 4::9] = 0
+                    h[:, 5::9] = 0
+                    h[:, 6::9] = 0
+                if self.crash_is_muted:
+                    h[:, 7::9] = 0
+                if self.ride_is_muted:
+                    h[:, 8::9] = 0
+
+                self.generations[:, i, :] = torch.cat((h, v, o), dim=-1)
+                self.num_generated_steps_available = max(self.num_generated_steps_available, i + 1)
+
+                if self.decoder_input_has_velocity:
+                    self.shifted_tgt[:, i + 1, :] = torch.cat((h, v, o), dim=-1)
+                else:
+                    self.shifted_tgt[:, i + 1, :] = torch.cat((h, torch.zeros_like(v) * 0, o), dim=-1)
+
+        return self.generations[:, start_:start_ + n_steps_, :]
+
+    @torch.jit.export
+    def predict_n_steps_starting_at(self, start_: int, n_steps_:int, threshold: float = 0.05):
+        """
+        doesn't always generate the exact number of steps requested - will generate as many as possible
+        ALWAYS check the number of generated steps using .shape[1] of the returned tensor
+        """
+
+        with torch.no_grad():
+            n_segs_in_bar = 16 // self.n_steps_per_segment
+
+            if self.num_segments_encoded_so_far < n_segs_in_bar:
+                print("Not enough segments encoded to generate a pattern - wait until more input is encoded")
+                return torch.zeros((1, 0, 3 * self.num_tgt_voices))
+
+            else:
+                max_possible_field = self.num_segments_encoded_so_far * self.n_steps_per_segment + self.predict_K_bars_ahead * 16
+                n_steps_ = min(n_steps_, max_possible_field - start_)
+
+                # ensure the steps prior to start are already generated
+                if self.num_generated_steps_available < 16:
+                    print("Need to generate the first bar before generating the requested steps")
+                    self.generations[:, :16, :] = self.predict_first_bar(threshold=threshold)
+                    self.num_generated_steps_available = 16
+
+                if self.num_generated_steps_available < start_:
+                    print("num_generated_steps_available:", self.num_generated_steps_available, "start_:", start_)
+                    print("Need to generate some prior steps before generating the requested steps")
+                    i0 = self.num_generated_steps_available
+                    i1 = start_ - i0
+                    self.generations[:, i0:i1, :] = self.predict_n_steps_without_safety_checks(i0, i1, threshold=threshold)
+
+                # ready to infere safely
+                return self.predict_n_steps_without_safety_checks(start_, n_steps_, threshold=threshold)
+
+
+    @torch.jit.export
+    def predict_next_K_bars_starting_at(self, start_:int, threshold: float=0.05, print_info: bool=False):
+        return self.predict_n_steps_starting_at(start_-self.total_shifts, self.predict_K_bars_ahead * 16, threshold=threshold)
+
+
+    # @torch.jit.export
+    # def predict_next_K_bars(self, roll_to_start_at_bar_boundary: bool=True, threshold: float=0.05, print_info: bool=False):
+    #
+    #     # get max number of steps available for prediction
+    #     end_point = self.num_segments_encoded_so_far * self.n_steps_per_segment + self.predict_K_bars_ahead * 16
+    #
+    #     step_iters = self.predict_K_bars_ahead * 16 if end_point <= self.max_tgt_steps else self.max_tgt_steps - self.num_segments_encoded_so_far * self.n_steps_per_segment
+    #
+    #     with torch.no_grad():
+    #         for i_ in range(step_iters):
+    #
+    #             i = i_ + self.num_segments_encoded_so_far * self.n_steps_per_segment
+    #
+    #             if i >= self.primed_for_N_segments * self.n_steps_per_segment:
+    #
+    #                 h_logits, v_logits, o_logits = self.DrumDecoder.forward(
+    #                     tgt=self.shifted_tgt[:, :i+1, :],
+    #                     memory=self.performance_memory[:, :self.num_segments_encoded_so_far, :]
+    #                 )
+    #
+    #                 h_logits = h_logits[:, i, :] / self.temperature
+    #                 h = torch.sigmoid(h_logits)
+    #
+    #                 # bernoulli sampling
+    #                 v = torch.clamp(((torch.tanh(v_logits[:, i, :]) + 1.0) / 2), 0.0, 1.0)
+    #                 o = torch.tanh(o_logits[:, i, :])
+    #
+    #                 h = torch.where(h < threshold, 0.0, h)
+    #                 h = torch.bernoulli(h)
+    #
+    #                 if self.kick_is_muted:
+    #                     h[:, 0::9] = 0
+    #                 if self.snare_is_muted:
+    #                     h[:, 1::9] = 0
+    #                 if self.hihat_is_muted:
+    #                     h[:, 2::9] = 0
+    #                     h[:, 3::9] = 0
+    #                 if self.tom_is_muted:
+    #                     h[:, 4::9] = 0
+    #                     h[:, 5::9] = 0
+    #                     h[:, 6::9] = 0
+    #                 if self.crash_is_muted:
+    #                     h[:, 7::9] = 0
+    #                 if self.ride_is_muted:
+    #                     h[:, 8::9] = 0
+    #
+    #                 self.generations[:, i, :] = torch.cat((h, v, o), dim=-1)
+    #
+    #                 if self.decoder_input_has_velocity:
+    #                     self.shifted_tgt[:, i+1, :] = torch.cat((h, v, o), dim=-1)
+    #                 else:
+    #                     self.shifted_tgt[:, i+1, :] = torch.cat((h, torch.zeros_like(v) * 0, o), dim=-1)
+    #
+    #         start_i = self.num_segments_encoded_so_far*self.n_steps_per_segment
+    #
+    #         gen = self.generations[:, start_i:start_i+self.predict_K_bars_ahead * 16, :].clone()
+    #
+    #         if print_info:
+    #             print("self.num_segments_encoded_so_far", self.num_segments_encoded_so_far, "start_i", start_i, "generations.shape", gen.shape)
+    #
+    #         if roll_to_start_at_bar_boundary and start_i % 16 != 0:
+    #             return torch.roll(gen, shifts=-(16 - (start_i % 16)), dims=1)
+    #
+    #         return gen
 
     @torch.jit.ignore
     def freeze_decoder(self):
@@ -757,97 +928,3 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
             if is_train:
                 self.train()
 
-
-if __name__ == '__main__':
-    steps_per_segment = 4
-    max_n_segments = 32 * 4
-    max_bars = int(max_n_segments * steps_per_segment / 16)
-
-    config = {
-        'SegmentEncoder': {
-            'd_model': 512,
-            'dim_feedforward': 2048,
-            'n_layers': 6,
-            'nhead': 8,
-            'n_src1_voices': 1,
-            'n_src2_voices': 0,
-            'steps_per_segment': steps_per_segment,
-            'has_velocity': True,
-            'has_offset': True,
-            'dropout': 0.1,
-            'velocity_dropout': 0.1,
-            'offset_dropout': 0.1,
-            'positional_encoding_dropout': 0.1,
-        },
-        'PerformanceEncoder': {
-            'd_model': 512,
-            'dim_feedforward': 2048,
-            'n_layers': 6,
-            'nhead': 8,
-            'max_n_segments': max_n_segments,  # maximum number of bars in a performance
-            'dropout': 0.1,
-            'positional_encoding_dropout': 0.1
-        },
-        'DrumDecoder': {
-            'd_model': 512,
-            'dim_feedforward': 2048,
-            'n_layers': 8,
-            'nhead': 4,
-            'n_tgt_voices': 9,
-            'max_steps': int(max_bars * 16),
-            'dropout': 0.1,
-            'velocity_dropout': 0.1,
-            'offset_dropout': 0.1,
-            'positional_encoding_dropout': 0.1,
-        }
-    }
-
-
-    # LongTermAccompanimentHierarchical
-    model = LongTermAccompanimentBeatwise(config)
-
-
-    # =================================================================================================
-    # Load Mega dataset as torch.utils.data.Dataset
-    from data import PairedLTADatasetV2
-
-    # load dataset as torch.utils.data.Dataset
-    training_dataset = PairedLTADatasetV2(
-        input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_test.bz2",
-        output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
-        shift_tgt_by_n_steps=16,
-        max_input_bars=32,
-        hop_n_bars=8,
-        input_has_velocity=True,
-        input_has_offsets=True
-    )
-
-    # access a batch
-    i1, i2, i12, i2_shifted = training_dataset[:2]
-
-
-    def create_src_mask(n_bars, max_n_bars):
-        # masked items are the ones noted as True
-
-        batch_size = n_bars.shape[0]
-        mask = torch.zeros((batch_size, max_n_bars), dtype=torch.bool)
-        for i in range(batch_size):
-            mask[i, n_bars[i]:] = 1
-        return mask
-
-    mask = create_src_mask(torch.tensor([12]*i12.shape[0]), config['PerformanceEncoder']['max_n_segments'])
-
-    h_logits, v_log, o_log = model.forward(
-        src=i1[:, :64, :],
-        shifted_tgt=i2_shifted[:, :32, :]
-    )
-    model.eval()
-
-    model.serialize(save_folder='misc/lta_segment_encoder', filename='test.pt')
-
-    #     h_logits, v_log, o_log = model.forward(
-    #         src=torch.rand(b_size, 16 * config['PerformanceEncoder']['max_n_segments'], n_features * config['GrooveEncoder']['n_src_voices']),
-    #         src_key_padding_and_memory_mask=mask,
-    #         shifted_tgt=torch.rand(b_size, config['DrumDecoder']['max_steps'],
-    #                        3 * config['DrumDecoder']['n_tgt_voices']))
-    #     print("Time taken for inference: LTA.forward()", time() - start)
