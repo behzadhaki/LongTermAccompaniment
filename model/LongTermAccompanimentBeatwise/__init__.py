@@ -445,18 +445,17 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
         if (src_instr_hvo.shape[-1] + tgt_instr_hvo.shape[-1]) != (self.SegmentEncoder.n_feaures_per_step * self.SegmentEncoder.n_src_voices):
             print(f'Error: The input instrumental groove and the drums must have a total of {self.SegmentEncoder.n_feaures_per_step * self.SegmentEncoder.n_src_voices} features. The input has {src_instr_hvo.shape[-1] + tgt_instr_hvo.shape[-1]} features')
 
-        with torch.no_grad():
-            # make sure there is at least one empty bar to add new input pairs
-            if self.num_bars_encoded_so_far == self.max_n_segments:
-                self.shift_by_n_bars(
-                    n_bars=1,
-                    adapt_num_bars_encoded_so_far=True)
+        # make sure there is at least one empty bar to add new input pairs
+        if self.num_bars_encoded_so_far == self.max_n_segments:
+            self.shift_by_n_bars(
+                n_bars=1,
+                adapt_num_bars_encoded_so_far=True)
 
-            self.encoded_segments[:, self.num_bars_encoded_so_far, :] = self.SegmentEncoder.forward(
-                src=self.stack_two_hvos(src_instr_hvo, tgt_instr_hvo))
+        self.encoded_segments[:, self.num_bars_encoded_so_far, :] = self.SegmentEncoder.forward(
+            src=self.stack_two_hvos(src_instr_hvo, tgt_instr_hvo))
 
-            self.performance_memory = self.PerformanceEncoder.forward(
-                src_rhythm_encodings=self.encoded_segments)
+        self.performance_memory = self.PerformanceEncoder.forward(
+            src_rhythm_encodings=self.encoded_segments)
 
     @torch.jit.export
     def encode_src_inst_without_tgt(self, src_instr_hvo: torch.Tensor):
@@ -512,32 +511,32 @@ class LongTermAccompanimentBeatwise(torch.nn.Module):
 
     @torch.jit.export
     def get_next_2_bars(self, threshold: float= 0.5):
-        with torch.no_grad():
-            hits_shifted = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
-            vels_shifted = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
-            offsets_shifted = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
 
-            current_step_hits = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
-            v = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
-            o = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        hits_shifted = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        vels_shifted = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        offsets_shifted = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
 
-            for i in range(self.max_tgt_steps):
-                h_logits, v_logits, o_logits = self.DrumDecoder.forward(
-                    tgt=torch.cat((hits_shifted, vels_shifted, offsets_shifted), dim=-1),
-                    memory=self.performance_memory)
+        current_step_hits = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        v = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
+        o = torch.zeros((1, self.max_tgt_steps, self.num_tgt_voices))
 
-                h = torch.sigmoid(h_logits)
-                v = (torch.tanh(v_logits) + 1.0) / 2
-                o = torch.tanh(o_logits)
+        for i in range(self.max_tgt_steps):
+            h_logits, v_logits, o_logits = self.DrumDecoder.forward(
+                tgt=torch.cat((hits_shifted, vels_shifted, offsets_shifted), dim=-1),
+                memory=self.performance_memory)
 
-                current_step_hits = torch.where(h > threshold, 1, 0)
-                v = v * current_step_hits
-                o = o * current_step_hits
+            h = torch.sigmoid(h_logits)
+            v = (torch.tanh(v_logits) + 1.0) / 2
+            o = torch.tanh(o_logits)
 
-                if i < self.max_tgt_steps - 1:
-                    hits_shifted[:, i+1, :] = current_step_hits[:, i, :]
-                    vels_shifted[:, i+1, :] = v[:, i, :]
-                    offsets_shifted[:, i+1, :] = o[:, i, :]
+            current_step_hits = torch.where(h > threshold, 1, 0)
+            v = v * current_step_hits
+            o = o * current_step_hits
+
+            if i < self.max_tgt_steps - 1:
+                hits_shifted[:, i+1, :] = current_step_hits[:, i, :]
+                vels_shifted[:, i+1, :] = v[:, i, :]
+                offsets_shifted[:, i+1, :] = o[:, i, :]
 
         return current_step_hits, v, o, torch.concat((current_step_hits, v, o), dim=-1)
 
