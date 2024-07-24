@@ -613,6 +613,7 @@ class LongTermAccompanimentBeatwiseUpcomingBars(torch.nn.Module):
         self.performance_memory[:, :self.num_segments_encoded_so_far, :] = self.PerformanceEncoder.forward(
             src_rhythm_encodings=self.encoded_segments[:, :self.num_segments_encoded_so_far, :])
 
+        return self.performance_memory[:, self.num_segments_encoded_so_far-1:self.num_segments_encoded_so_far, :]
 
     @torch.jit.export
     def prime_with_drums(self, hvo: torch.Tensor):
