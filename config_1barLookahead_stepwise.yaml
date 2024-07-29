@@ -45,9 +45,9 @@ batch_size: 32
 epochs: 1000
 device: "cuda"
 
-input_inst_dataset_bz2_filepath_train: "data/lmd/data_bass_groove_train.bz2"
+input_inst_dataset_bz2_filepath_train: "data/lmd/data_synth_groove_train.bz2"
 output_inst_dataset_bz2_filepath_train: "data/lmd/data_drums_full_unsplit.bz2"
-input_inst_dataset_bz2_filepath_test: "data/lmd/data_bass_groove_test.bz2"
+input_inst_dataset_bz2_filepath_test: "data/lmd/data_synth_groove_test.bz2"
 output_inst_dataset_bz2_filepath_test: "data/lmd/data_drums_full_unsplit.bz2"
 shift_tgt_by_n_steps: 1
 hop_n_bars: 8
@@ -60,6 +60,6 @@ start_decoder_training_at_epoch: 5
 
 predict_K_bars_ahead: 1
 
-run_name: "(step_by_step) Predict 1 bar ahead, no velocity at inputs "
+run_name: "GUITAR_(step_by_step) Predict 1 bar ahead, no velocity at inputs "
 
 
