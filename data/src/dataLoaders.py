@@ -714,6 +714,26 @@ class PairedLTADatasetV2(Dataset):
         else:
             should_process_data = True
 
+        def get_hit_counts_per_bar(hvo_in):
+            counts = []
+            n_features = hvo_in.shape[-1] // 3
+            for i in range(0, hvo_in.shape[0], 16):
+                counts.append(hvo_in[i:i+16, :n_features].sum())
+            return counts
+
+        def is_valid(hvo_groove, hvo_drum):
+            groove_counts = get_hit_counts_per_bar(hvo_groove)
+            drum_counts = get_hit_counts_per_bar(hvo_drum)
+
+            # invalid if first groove bar has no hits or drum hits
+            # invalid if more than 2 empty groove bars or more than 2 empty drum bars
+            if groove_counts[0] == 0 or drum_counts[0] == 0:
+                return False
+            elif groove_counts.count(0) > 2 or drum_counts.count(0) > 2:
+                return False
+            else:
+                return True
+
         if should_process_data:
             # load data
             with bz2.BZ2File(input_inst_dataset_bz2_filepath, 'rb') as f:
@@ -755,7 +775,7 @@ class PairedLTADatasetV2(Dataset):
                     i1_seg = i1.hvo[ts_:te_]
                     i2_seg = i2.hvo[ts_:te_]
 
-                    if i1_seg.shape[0] == max_input_bars * 16:
+                    if i1_seg.shape[0] == max_input_bars * 16 and is_valid(i1_seg, i2_seg):
                         i1_2_stack = stack_two_hvos(i1_seg, i2_seg, True, True)
                         inst1_hvos.append(i1_seg)
                         inst2_hvos.append(i2_seg)
@@ -825,35 +845,23 @@ if __name__ == "__main__":
     # Load Mega dataset as torch.utils.data.Dataset
     from data import PairedLTADatasetV2
 
-    # load dataset as torch.utils.data.Dataset
-    # training_dataset = PairedLTADataset(
-    #     input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_test.bz2",
-    #     output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
-    #     shift_tgt_by_n_steps=1,
-    #     input_bars=32,
-    #     hop_n_bars=2
-    # )
 
-    from data import PairedLTADataset
+    def get_hit_counts_per_bar(hvo_in):
+        counts = []
+        n_features = hvo_in.shape[-1] // 3
+        for i in range(0, hvo_in.shape[0], 16):
+            counts.append(hvo_in[i:i + 16, :n_features].sum())
+        return counts
 
-    test_dataset = PairedLTADataset(
-        input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_test.bz2",
-        output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
-        shift_tgt_by_n_steps=1,
-        max_input_bars=32,
-        continuation_bars=2,
-        hop_n_bars=1
-    )
+    from data import PairedLTADatasetV2
+    max_n_bars = 8
 
-    test_dataset.show_hit_density_histogram(n_bins=100)
+    test_dataset = PairedLTADatasetV2(
+            input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_train.bz2",
+            output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
+            shift_tgt_by_n_steps=1,
+            max_input_bars=max_n_bars,
+            hop_n_bars=max_n_bars
+        )
 
-    train_dataset = PairedLTADataset(
-        input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_train.bz2",
-        output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
-        shift_tgt_by_n_steps=1,
-        max_input_bars=32,
-        continuation_bars=2,
-        hop_n_bars=1
-    )
-
-    train_dataset.show_hit_density_histogram(n_bins=100)
+    get_hit_counts_per_bar(test_dataset.instrument2_hvos[10])
