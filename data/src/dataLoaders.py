@@ -650,14 +650,15 @@ class PairedLTADataset(Dataset):
                 )
 
 
-class PairedLTADatasetV2(Dataset):
+class StackedLTADatasetV2(Dataset):
     def __init__(self,
                  input_inst_dataset_bz2_filepath,
                  output_inst_dataset_bz2_filepath,
                  shift_tgt_by_n_steps=1,
                  max_input_bars=32,
                  hop_n_bars=2,
-                 push_all_data_to_cuda=False):
+                 push_all_data_to_cuda=False,
+                 input_has_velocity=True):
 
         self.max_input_bars = max_input_bars
         self.hop_n_bars = hop_n_bars
@@ -665,13 +666,13 @@ class PairedLTADatasetV2(Dataset):
         def get_cached_filepath():
             dir_ = "cached/TorchDatasets"
             filename = (
-                f"PairedLTADatasetV2_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
+                f"StackedLTADatasetV2_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
                 f"_{max_input_bars}_{hop_n_bars}_{shift_tgt_by_n_steps}.bz2pickle")
             if not os.path.exists(dir_):
                 os.makedirs(dir_)
             return os.path.join(dir_, filename)
 
-        def stack_two_hvos(hvo1, hvo2, use_velocity, use_offsets):
+        def stack_two_hvos(hvo1, hvo2, use_velocity):
             # assert same length
             assert hvo1.shape[0] == hvo2.shape[0], f"{hvo1.shape} != {hvo2.shape}"
 
@@ -685,14 +686,10 @@ class PairedLTADatasetV2(Dataset):
             v2 = hvo2[:, n_voices_2:2 * n_voices_2]
             o2 = hvo2[:, 2 * n_voices_2:]
 
-            if use_velocity and use_offsets:
+            if use_velocity:
                 return np.hstack([h1, h2, v1, v2, o1, o2])
-            elif use_offsets:
-                return np.hstack([h1, h2, o1, o2])
-            elif use_velocity:
-                return np.hstack([h1, h2, v1, v2])
             else:
-                return np.hstack([h1, h2])
+                return np.hstack([h1, h2, o1, o2])
 
         # check if cached version exists
         cached_exists = os.path.exists(get_cached_filepath())
@@ -702,16 +699,16 @@ class PairedLTADatasetV2(Dataset):
             should_process_data = False
 
             # Load the cached version
-            dataLoaderLogger.info(f"PairedLTADatasetV2 Constructor --> Loading Cached Version from: {get_cached_filepath()}")
+            dataLoaderLogger.info(f"StackedLTADatasetV2 Constructor --> Loading Cached Version from: {get_cached_filepath()}")
             ifile = bz2.BZ2File(get_cached_filepath(), 'rb')
             data = pickle.load(ifile)
             ifile.close()
             self.instrument1_hvos = torch.tensor(data["instrument1_hvos"], dtype=torch.float32)
             self.instrument2_hvos = torch.tensor(data["instrument2_hvos"], dtype=torch.float32)
-            self.instrument1and2_hvos = torch.tensor(data["instrument1and2_hvos"], dtype=torch.float32)
-            self.instrument2_shifted_hvos = torch.tensor(data["instrument2_shifted_hvos"], dtype=torch.float32)
-
+            self.stacked_target = torch.tensor(data["stacked_target"], dtype=torch.float32)
+            self.stacked_target_shifted = torch.tensor(data["stacked_target_shifted"], dtype=torch.float32)
         else:
+            dataLoaderLogger.info(f"No Cached Version Available Here: {get_cached_filepath}. ")
             should_process_data = True
 
         def get_hit_counts_per_bar(hvo_in):
@@ -727,9 +724,9 @@ class PairedLTADatasetV2(Dataset):
 
             # invalid if first groove bar has no hits or drum hits
             # invalid if more than 2 empty groove bars or more than 2 empty drum bars
-            if groove_counts[0] == 0 or drum_counts[0] == 0:
+            if groove_counts[0] == 0:
                 return False
-            elif groove_counts.count(0) > 2 or drum_counts.count(0) > 2:
+            elif groove_counts.count(0) > 2 or drum_counts.count(0) > 3:
                 return False
             else:
                 return True
@@ -747,8 +744,8 @@ class PairedLTADatasetV2(Dataset):
 
             inst1_hvos = []
             inst2_hvos = []
-            inst1and2_hvos = []
-            inst2_shifted_hvos = []
+            stacked_target = []
+            stacked_target_shifted = []
 
             for song_id in tqdm(song_ids_all):
                 i1 = instrument1s[song_id]
@@ -768,33 +765,37 @@ class PairedLTADatasetV2(Dataset):
                 n_bars = n_steps // 16
 
                 segments_starts = [i for i in range(0, n_bars, hop_n_bars)]
-
                 for i in segments_starts:
                     ts_ = i * 16
                     te_ = ts_ + max_input_bars * 16
-                    i1_seg = i1.hvo[ts_:te_]
-                    i2_seg = i2.hvo[ts_:te_]
+                    i1_seg = i1.hvo[ts_:te_].copy()
+                    i2_seg = i2.hvo[ts_:te_].copy()
+
+                    # mute first bar of instrument 2 (drums)
+                    i2_seg[:16] = 0
 
                     if i1_seg.shape[0] == max_input_bars * 16 and is_valid(i1_seg, i2_seg):
-                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, True, True)
+                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, True)
                         inst1_hvos.append(i1_seg)
                         inst2_hvos.append(i2_seg)
-                        inst1and2_hvos.append(i1_2_stack)
-                        inst2_shifted_ = np.zeros_like(i2_seg)
-                        inst2_shifted_[shift_tgt_by_n_steps:] = i2_seg[:-shift_tgt_by_n_steps]
-                        inst2_shifted_hvos.append(inst2_shifted_)
+                        stacked_target.append(i1_2_stack)
+                        i1_2_stack_for_shifting = stack_two_hvos(i1_seg, i2_seg, input_has_velocity)
+                        stacked_target_shifted_ = np.zeros_like(i1_2_stack_for_shifting)
+                        stacked_target_shifted_[shift_tgt_by_n_steps:] = i1_2_stack_for_shifting[:-shift_tgt_by_n_steps]
+                        stacked_target_shifted.append(stacked_target_shifted_)
 
             self.instrument1_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1_hvos])
             self.instrument2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_hvos])
-            self.instrument1and2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1and2_hvos])
-            self.instrument2_shifted_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_shifted_hvos])
+            self.stacked_target = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in stacked_target])
+            self.stacked_target_shifted = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in stacked_target_shifted])
+
 
             # cache the processed data
             data_to_dump = {
                 "instrument1_hvos": self.instrument1_hvos.numpy(),
                 "instrument2_hvos": self.instrument2_hvos.numpy(),
-                "instrument1and2_hvos": self.instrument1and2_hvos.numpy(),
-                "instrument2_shifted_hvos": self.instrument2_shifted_hvos.numpy(),
+                "stacked_target": self.stacked_target.numpy(),
+                "stacked_target_shifted": self.stacked_target_shifted.numpy(),
             }
 
             ofile = bz2.BZ2File(get_cached_filepath(), 'wb')
@@ -805,10 +806,8 @@ class PairedLTADatasetV2(Dataset):
             dataLoaderLogger.info(f"Loaded {len(self.instrument1_hvos)} sequences")
 
         if push_all_data_to_cuda:
-            self.instrument1_hvos = self.instrument1_hvos.cuda()
-            self.instrument2_hvos = self.instrument2_hvos.cuda()
-            self.instrument1and2_hvos = self.instrument1and2_hvos.cuda()
-            self.instrument2_shifted_hvos = self.instrument2_shifted_hvos.cuda()
+            self.stacked_target = self.stacked_target.cuda()
+            self.stacked_target_shifted = self.stacked_target_shifted.cuda()
 
     def get_hit_density_histogram(self, n_bins=100):
         hit_densities = []
@@ -828,10 +827,11 @@ class PairedLTADatasetV2(Dataset):
         return len(self.instrument1_hvos)
 
     def __getitem__(self, idx):
-        return (self.instrument1_hvos[idx],
-                self.instrument2_hvos[idx],
-                self.instrument1and2_hvos[idx],
-                self.instrument2_shifted_hvos[idx]
+        return (
+            self.stacked_target_shifted[idx],
+            self.stacked_target[idx],
+            self.instrument1_hvos[idx],
+            self.instrument2_hvos[idx]
                 )
 
 
@@ -843,7 +843,6 @@ if __name__ == "__main__":
     #
     # =================================================================================================
     # Load Mega dataset as torch.utils.data.Dataset
-    from data import PairedLTADatasetV2
 
 
     def get_hit_counts_per_bar(hvo_in):
@@ -853,15 +852,16 @@ if __name__ == "__main__":
             counts.append(hvo_in[i:i + 16, :n_features].sum())
         return counts
 
-    from data import PairedLTADatasetV2
     max_n_bars = 8
 
-    test_dataset = PairedLTADatasetV2(
+    test_dataset = StackedLTADatasetV2(
             input_inst_dataset_bz2_filepath="data/lmd/data_bass_groove_train.bz2",
             output_inst_dataset_bz2_filepath="data/lmd/data_drums_full_unsplit.bz2",
             shift_tgt_by_n_steps=1,
             max_input_bars=max_n_bars,
-            hop_n_bars=max_n_bars
-        )
+            hop_n_bars=max_n_bars,
+            push_all_data_to_cuda=False,
+            input_has_velocity=True)
+
 
     get_hit_counts_per_bar(test_dataset.instrument2_hvos[10])

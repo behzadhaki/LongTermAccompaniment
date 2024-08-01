@@ -32,7 +32,7 @@ class SegmentEncoder(torch.nn.Module):
 
         super(SegmentEncoder, self).__init__()
         self.n_feaures_per_step = 3
-        self.config = config['SegmentEncoder'] if 'SegmentEncoder' in config else config
+        self.config = config['StepEncoder'] if 'StepEncoder' in config else config
         self.n_src_voices = self.config['n_src1_voices'] + self.config['n_src2_voices']
         self.n_src1_voices = self.config['n_src1_voices']
         self.n_src2_voices = self.config['n_src2_voices']
@@ -240,6 +240,7 @@ def generate_memory_mask_for_K_bars_ahead_prediction(input_steps, output_steps, 
                 mask[i, :seg_ix - max_look_back_segments + 1] = 0
     return mask
 
+
 class DrumDecoder(torch.nn.Module):
 
         def __init__(self, config):
@@ -288,12 +289,12 @@ class DrumDecoder(torch.nn.Module):
             self.input_segments = config['PerformanceEncoder']['max_n_segments']
 
             self.memory_mask = generate_memory_mask_for_K_bars_ahead_prediction(
-                input_steps=self.input_segments * config['SegmentEncoder']['steps_per_segment'],
+                input_steps=self.input_segments * config['StepEncoder']['steps_per_segment'],
                 output_steps=self.config['max_steps'],
                 predict_K_bars_ahead=config['predict_K_bars_ahead'],
-                segment_length=config['SegmentEncoder']['steps_per_segment'])
+                segment_length=config['StepEncoder']['steps_per_segment'])
 
-            self.performance_encoder_input_steps = config['SegmentEncoder']
+            self.performance_encoder_input_steps = config['StepEncoder']
 
         def __getstate__(self):
             state = self.__dict__.copy()
@@ -381,7 +382,7 @@ class LTA(torch.nn.Module):
         self.config = config
         self.max_n_segments = self.config['PerformanceEncoder']['max_n_segments']
         self.encoder_d_model = self.config['PerformanceEncoder']['d_model']
-        self.n_steps_per_segment = self.config['SegmentEncoder']['steps_per_segment']
+        self.n_steps_per_segment = self.config['StepEncoder']['steps_per_segment']
         self.predict_K_bars_ahead = config['predict_K_bars_ahead']
 
         # The following will be shared every segment
@@ -863,7 +864,7 @@ class LTA(torch.nn.Module):
 
     def forward(self, src: torch.Tensor, shifted_tgt: torch.Tensor):
 
-        # SegmentEncoder
+        # StepEncoder
         n_segments = int(src.shape[1] // self.n_steps_per_segment)
 
         encoded_segments = torch.zeros((src.shape[0], n_segments, self.encoder_d_model), device=src.device)

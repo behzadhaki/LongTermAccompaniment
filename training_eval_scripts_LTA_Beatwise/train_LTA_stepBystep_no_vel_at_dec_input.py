@@ -24,23 +24,23 @@ parser.add_argument(
     "--config",
     help="Yaml file for configuratio. If available, the rest of the arguments will be ignored", default=None)
 
-# ----------------------- SegmentEncoder Model Parameters -----------------------
+# ----------------------- StepEncoder Model Parameters -----------------------
 parser.add_argument("--max_n_bars", type=int, help="Max Number of bars in the input/ouput", default=32)
 
-parser.add_argument("--se_d_model", type=int, help="SegmentEncoder's d_model", default=128)
-parser.add_argument("--se_d_ff", type=int, help="SegmentEncoder's d_ff", default=512)
-parser.add_argument("--se_n_layers", type=int, help="SegmentEncoder's n_layers", default=3)
-parser.add_argument("--se_n_heads", type=int, help="SegmentEncoder's n_heads", default=4)
-parser.add_argument("--se_n_src1_voices", type=int, help="SegmentEncoder's n_src1_voices", default=1)
-parser.add_argument("--se_n_src2_voices", type=int, help="SegmentEncoder's n_src2_voices - n_src2 is usually the same as target", default=0)
-parser.add_argument("--se_steps_per_segment", type=int, help="SegmentEncoder's steps_per_segment", default=4)
-parser.add_argument("--se_has_velocity", type=bool, help="SegmentEncoder's has_velocity", default=True)
-parser.add_argument("--se_has_offset", type=bool, help="SegmentEncoder's has_offset", default=True)
+parser.add_argument("--se_d_model", type=int, help="StepEncoder's d_model", default=128)
+parser.add_argument("--se_d_ff", type=int, help="StepEncoder's d_ff", default=512)
+parser.add_argument("--se_n_layers", type=int, help="StepEncoder's n_layers", default=3)
+parser.add_argument("--se_n_heads", type=int, help="StepEncoder's n_heads", default=4)
+parser.add_argument("--se_n_src1_voices", type=int, help="StepEncoder's n_src1_voices", default=1)
+parser.add_argument("--se_n_src2_voices", type=int, help="StepEncoder's n_src2_voices - n_src2 is usually the same as target", default=0)
+parser.add_argument("--se_steps_per_segment", type=int, help="StepEncoder's steps_per_segment", default=4)
+parser.add_argument("--se_has_velocity", type=bool, help="StepEncoder's has_velocity", default=True)
+parser.add_argument("--se_has_offset", type=bool, help="StepEncoder's has_offset", default=True)
 
-parser.add_argument("--se_dropout", type=float, help="Dropout of SegmentEncoder transformer layers", default=0.1)
-parser.add_argument("--se_velocity_dropout", type=float, help="Dropout of velocity information at the input of SegmentEncoder", default=0.1)
-parser.add_argument("--se_offset_dropout", type=float, help="Dropout of offset information at the input of SegmentEncoder", default=0.1)
-parser.add_argument("--se_positional_dropout", type=float, help="Dropout of positional encoding at the input of SegmentEncoder", default=0.1)
+parser.add_argument("--se_dropout", type=float, help="Dropout of StepEncoder transformer layers", default=0.1)
+parser.add_argument("--se_velocity_dropout", type=float, help="Dropout of velocity information at the input of StepEncoder", default=0.1)
+parser.add_argument("--se_offset_dropout", type=float, help="Dropout of offset information at the input of StepEncoder", default=0.1)
+parser.add_argument("--se_positional_dropout", type=float, help="Dropout of positional encoding at the input of StepEncoder", default=0.1)
 
 
 # ----------------------- PerformanceEncoder Model Parameters -----------------------
@@ -135,7 +135,7 @@ hparams = {
     'max_n_bars': args.max_n_bars if not loaded_via_config_yaml else yml_['max_n_bars'],
     'teacher_forcing_ratio': args.teacher_forcing_ratio if not loaded_via_config_yaml else yml_['teacher_forcing_ratio'],
 
-    'SegmentEncoder': {
+    'StepEncoder': {
         'd_model': args.se_d_model if not loaded_via_config_yaml else yml_['se_d_model'],
         'dim_feedforward': args.se_d_ff if not loaded_via_config_yaml else yml_['se_d_ff'],
         'n_layers': args.se_n_layers if not loaded_via_config_yaml else yml_['se_n_layers'],
@@ -280,9 +280,9 @@ if __name__ == "__main__":
 
         bass_solo = data_[0].to(device) if data_[0].device.type != device else data_[0]
         n_bass_voices = bass_solo.shape[-1] // 3
-        if not config['SegmentEncoder']['has_velocity']:
+        if not config['StepEncoder']['has_velocity']:
             bass_solo[:, :, n_bass_voices:2*n_bass_voices] = 0.0            # set vels to 0
-        if not config['SegmentEncoder']['has_offset']:
+        if not config['StepEncoder']['has_offset']:
             bass_solo[:, :, 2*n_bass_voices:] = 0.0                         # set offsets
 
         drums = data_[1].to(device) if data_[1].device.type != device else data_[1]
