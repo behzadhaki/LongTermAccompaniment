@@ -2,7 +2,7 @@ max_n_bars: 32
 input_has_velocity: false
 d_model: 64
 d_ff: 128
-n_layers: 4
+n_layers: 6
 n_heads: 4
 n_src1_voices: 1
 n_src2_voices: 9
@@ -15,7 +15,7 @@ scale_o_loss: 1
 
 optimizer: "adam"
 lr: 0.0006369948608989782
-batch_size: 32
+batch_size: 128
 epochs: 1000
 device: "cuda"
 
@@ -46,6 +46,6 @@ teacher_forcing_ratio: 1.0
 
 predict_K_bars_ahead: 1
 
-run_name: "Bass (LTA_Stacked) Predict 1 bar ahead, no velocity at inputs"
+run_name: "[bassGuiSynLeadPian] (LTA_Stacked) 1bar no in vel"
 
 

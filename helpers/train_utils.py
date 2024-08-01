@@ -161,8 +161,12 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
 
         per_voice_mask = torch.ones_like(hit_mask)
 
-        # TOMS Weighted twice
-        per_voice_mask[:, :, 4:7] = 2
+        # TOMS and Groove Weighted Twice and Three times respectively
+        if hit_logits.shape[-1] == 9: # no groove
+            per_voice_mask[:, :, 4:7] = 2
+        elif hit_logits.shape[-1] == 10: # with groove
+            per_voice_mask[:, :, 0] = 3
+            per_voice_mask[:, :, 5:8] = 2
 
         hit_mask = hit_mask * per_voice_mask
         

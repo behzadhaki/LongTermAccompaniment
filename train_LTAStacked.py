@@ -52,13 +52,13 @@ parser.add_argument("--device", type=str, help="Device to run the model on", def
 parser.add_argument("--teacher_forcing_ratio", type=float, help="Teacher forcing ratio", default=0.5)
 
 # ----------------------- Data Parameters -----------------------
-parser.add_argument("--input_inst_dataset_bz2_filepath_train", type=str,
+parser.add_argument("--train_datasets", type=str,
                     help="Path to the dataset file in bz2 format")
-parser.add_argument("--output_inst_dataset_bz2_filepath_train", type=str,
+parser.add_argument("--paired_drum_dataset_bz2_filepath_train", type=str,
                     help="Path to the dataset file in bz2 format")
-parser.add_argument("--input_inst_dataset_bz2_filepath_test", type=str,
+parser.add_argument("--test_datasets", type=str,
                     help="Path to the dataset file in bz2 format")
-parser.add_argument("--output_inst_dataset_bz2_filepath_test", type=str,
+parser.add_argument("--paired_drum_dataset_bz2_filepath_test", type=str,
                     help="Path to the dataset file in bz2 format")
 parser.add_argument("--shift_tgt_by_n_steps", type=int,
                     help="Number of steps to shift the target by", default=1)
@@ -121,16 +121,23 @@ hparams = {
     'positional_encoding_dropout': args.positional_encoding_dropout if not loaded_via_config_yaml else yml_['positional_encoding_dropout'],
     'input_has_velocity': args.input_has_velocity if not loaded_via_config_yaml else yml_['input_has_velocity'],
     
-    'input_inst_dataset_bz2_filepath_train': args.input_inst_dataset_bz2_filepath_train if not loaded_via_config_yaml else yml_['input_inst_dataset_bz2_filepath_train'],
-    'output_inst_dataset_bz2_filepath_train': args.output_inst_dataset_bz2_filepath_train if not loaded_via_config_yaml else yml_['output_inst_dataset_bz2_filepath_train'],
-    'input_inst_dataset_bz2_filepath_test': args.input_inst_dataset_bz2_filepath_test if not loaded_via_config_yaml else yml_['input_inst_dataset_bz2_filepath_test'],
-    'output_inst_dataset_bz2_filepath_test': args.output_inst_dataset_bz2_filepath_test if not loaded_via_config_yaml else yml_['output_inst_dataset_bz2_filepath_test'],
+    'train_datasets': args.train_datasets if not loaded_via_config_yaml else yml_['train_datasets'],
+    'paired_drum_dataset_bz2_filepath_train': args.paired_drum_dataset_bz2_filepath_train if not loaded_via_config_yaml else yml_['paired_drum_dataset_bz2_filepath_train'],
+    'test_datasets': args.test_datasets if not loaded_via_config_yaml else yml_['test_datasets'],
+    'paired_drum_dataset_bz2_filepath_test': args.paired_drum_dataset_bz2_filepath_test if not loaded_via_config_yaml else yml_['paired_drum_dataset_bz2_filepath_test'],
     'shift_tgt_by_n_steps': args.shift_tgt_by_n_steps if not loaded_via_config_yaml else yml_['shift_tgt_by_n_steps'],
     'hop_n_bars': args.hop_n_bars if not loaded_via_config_yaml else yml_['hop_n_bars'],
     'push_all_data_to_cuda': args.push_all_data_to_cuda if not loaded_via_config_yaml else yml_['push_all_data_to_cuda'],
     'run_name': None if not loaded_via_config_yaml else yml_['run_name'] if 'run_name' in yml_ else None,
     'predict_K_bars_ahead': args.predict_K_bars_ahead if not loaded_via_config_yaml else yml_['predict_K_bars_ahead']
 }
+
+# check if the train_datasets and test_datasets are list, if not make them list
+if not isinstance(hparams['train_datasets'], list):
+    hparams['train_datasets'] = [hparams['train_datasets']]
+
+if not isinstance(hparams['test_datasets'], list):
+    hparams['test_datasets'] = [hparams['test_datasets']]
 
 
 if __name__ == "__main__":
@@ -162,29 +169,42 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------------------------------------------
     # only 1% of the dataset is used if we are testing the script (is_testing==True)
     # load dataset as torch.utils.data.Dataset
-    training_dataset = StackedLTADatasetV2(
-        input_inst_dataset_bz2_filepath=config['input_inst_dataset_bz2_filepath_train'],
-        output_inst_dataset_bz2_filepath=config['output_inst_dataset_bz2_filepath_train'],
-        shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-        max_input_bars=config['max_n_bars'],
-        hop_n_bars=config['hop_n_bars'],
-        push_all_data_to_cuda=config['push_all_data_to_cuda'],
-        input_has_velocity=config['input_has_velocity'],
-    )
+    print("Loading Training Datasets: ", config['train_datasets'])
+
+    training_datasets = []
+    for dataset in config['train_datasets']:
+        training_datasets.append(StackedLTADatasetV2(
+            input_inst_dataset_bz2_filepath=dataset,
+            output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_train'],
+            shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
+            max_input_bars=config['max_n_bars'],
+            hop_n_bars=config['hop_n_bars'],
+            push_all_data_to_cuda=config['push_all_data_to_cuda'],
+            input_has_velocity=config['input_has_velocity'],
+        ))
+    training_dataset = torch.utils.data.ConcatDataset(training_datasets)
+
+    print(" |\n|\n--> Training Dataset Length: ", len(training_dataset))
+
     train_dataloader = DataLoader(training_dataset, batch_size=config.batch_size, shuffle=True)
 
     # load dataset as torch.utils.data.Dataset
-    test_dataset = StackedLTADatasetV2(
-        input_inst_dataset_bz2_filepath=config['input_inst_dataset_bz2_filepath_test'],
-        output_inst_dataset_bz2_filepath=config['output_inst_dataset_bz2_filepath_test'],
-        shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-        max_input_bars=config['max_n_bars'],
-        hop_n_bars=config['hop_n_bars'],
-        push_all_data_to_cuda=config['push_all_data_to_cuda'],
-        input_has_velocity=config['input_has_velocity'],
-    )
+    testing_datasets = []
+    for dataset in config['test_datasets']:
+        testing_datasets.append(StackedLTADatasetV2(
+            input_inst_dataset_bz2_filepath=dataset,
+            output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_test'],
+            shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
+            max_input_bars=config['max_n_bars'],
+            hop_n_bars=config['hop_n_bars'],
+            push_all_data_to_cuda=config['push_all_data_to_cuda'],
+            input_has_velocity=config['input_has_velocity'],
+        ))
+    testing_dataset = torch.utils.data.ConcatDataset(testing_datasets)
 
-    test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
+    print(" |\n|\n--> Testing Dataset Length: ", len(testing_dataset))
+
+    test_dataloader = DataLoader(testing_dataset, batch_size=config.batch_size, shuffle=True)
 
     # Initialize the model
     # ------------------------------------------------------------------------------------------------------------
