@@ -486,29 +486,23 @@ def upsample_to_ensure_genre_balance(dataset_setting_json_path, subset_tag, cach
         return set_data_
 
 
-class PairedLTADataset(Dataset):
+class PairedLTADatasetV2(Dataset):
     def __init__(self,
                  input_inst_dataset_bz2_filepath,
                  output_inst_dataset_bz2_filepath,
                  shift_tgt_by_n_steps=1,
                  max_input_bars=32,
-                 continuation_bars=2,
                  hop_n_bars=2,
-                 input_has_velocity=True,
-                 input_has_offsets=True,
                  push_all_data_to_cuda=False):
 
         self.max_input_bars = max_input_bars
-        self.continuation_bars = continuation_bars
         self.hop_n_bars = hop_n_bars
-        self.input_has_velocity = input_has_velocity
-        self.input_has_offsets = input_has_offsets
 
         def get_cached_filepath():
             dir_ = "cached/TorchDatasets"
             filename = (
-                f"PairedLTADataset_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
-                f"_{max_input_bars}_{hop_n_bars}_{input_has_velocity}_{input_has_offsets}_{shift_tgt_by_n_steps}.bz2pickle")
+                f"PairedLTADatasetV2_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
+                f"_{max_input_bars}_{hop_n_bars}_{shift_tgt_by_n_steps}.bz2pickle")
             if not os.path.exists(dir_):
                 os.makedirs(dir_)
             return os.path.join(dir_, filename)
@@ -551,9 +545,30 @@ class PairedLTADataset(Dataset):
             self.instrument1_hvos = torch.tensor(data["instrument1_hvos"], dtype=torch.float32)
             self.instrument2_hvos = torch.tensor(data["instrument2_hvos"], dtype=torch.float32)
             self.instrument1and2_hvos = torch.tensor(data["instrument1and2_hvos"], dtype=torch.float32)
+            self.instrument2_shifted_hvos = torch.tensor(data["instrument2_shifted_hvos"], dtype=torch.float32)
 
         else:
             should_process_data = True
+
+        def get_hit_counts_per_bar(hvo_in):
+            counts = []
+            n_features = hvo_in.shape[-1] // 3
+            for i in range(0, hvo_in.shape[0], 16):
+                counts.append(hvo_in[i:i+16, :n_features].sum())
+            return counts
+
+        def is_valid(hvo_groove, hvo_drum):
+            groove_counts = get_hit_counts_per_bar(hvo_groove)
+            drum_counts = get_hit_counts_per_bar(hvo_drum)
+
+            # invalid if first groove bar has no hits or drum hits
+            # invalid if more than 2 empty groove bars or more than 2 empty drum bars
+            if groove_counts[0] == 0 or drum_counts[0] == 0:
+                return False
+            elif groove_counts.count(0) > 2 or drum_counts.count(0) > 2:
+                return False
+            else:
+                return True
 
         if should_process_data:
             # load data
@@ -569,8 +584,7 @@ class PairedLTADataset(Dataset):
             inst1_hvos = []
             inst2_hvos = []
             inst1and2_hvos = []
-
-            max_segment_len_bars = max_input_bars + continuation_bars
+            inst2_shifted_hvos = []
 
             for song_id in tqdm(song_ids_all):
                 i1 = instrument1s[song_id]
@@ -593,25 +607,30 @@ class PairedLTADataset(Dataset):
 
                 for i in segments_starts:
                     ts_ = i * 16
-                    te_ = ts_ + max_segment_len_bars * 16
+                    te_ = ts_ + max_input_bars * 16
                     i1_seg = i1.hvo[ts_:te_]
                     i2_seg = i2.hvo[ts_:te_]
 
-                    if i1_seg.shape[0] == max_segment_len_bars * 16:
-                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, input_has_velocity, input_has_offsets)
+                    if i1_seg.shape[0] == max_input_bars * 16 and is_valid(i1_seg, i2_seg):
+                        i1_2_stack = stack_two_hvos(i1_seg, i2_seg, True, True)
                         inst1_hvos.append(i1_seg)
                         inst2_hvos.append(i2_seg)
                         inst1and2_hvos.append(i1_2_stack)
+                        inst2_shifted_ = np.zeros_like(i2_seg)
+                        inst2_shifted_[shift_tgt_by_n_steps:] = i2_seg[:-shift_tgt_by_n_steps]
+                        inst2_shifted_hvos.append(inst2_shifted_)
 
             self.instrument1_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1_hvos])
             self.instrument2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_hvos])
             self.instrument1and2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1and2_hvos])
+            self.instrument2_shifted_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_shifted_hvos])
 
             # cache the processed data
             data_to_dump = {
                 "instrument1_hvos": self.instrument1_hvos.numpy(),
                 "instrument2_hvos": self.instrument2_hvos.numpy(),
                 "instrument1and2_hvos": self.instrument1and2_hvos.numpy(),
+                "instrument2_shifted_hvos": self.instrument2_shifted_hvos.numpy(),
             }
 
             ofile = bz2.BZ2File(get_cached_filepath(), 'wb')
@@ -625,6 +644,7 @@ class PairedLTADataset(Dataset):
             self.instrument1_hvos = self.instrument1_hvos.cuda()
             self.instrument2_hvos = self.instrument2_hvos.cuda()
             self.instrument1and2_hvos = self.instrument1and2_hvos.cuda()
+            self.instrument2_shifted_hvos = self.instrument2_shifted_hvos.cuda()
 
     def get_hit_density_histogram(self, n_bins=100):
         hit_densities = []
@@ -644,9 +664,10 @@ class PairedLTADataset(Dataset):
         return len(self.instrument1_hvos)
 
     def __getitem__(self, idx):
-        return (self.instrument1_hvos[idx],  # 0: instrument1_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_1))
-                self.instrument2_hvos[idx],  # 1: instrument2_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_2))
-                self.instrument1and2_hvos[idx]  # 2: instrument1and2_hvos (shape: (max_input_bars + continuation_bars, 3 * features_inst_1 + 3 * features_inst_2))
+        return (self.instrument1_hvos[idx],
+                self.instrument2_hvos[idx],
+                self.instrument1and2_hvos[idx],
+                self.instrument2_shifted_hvos[idx]
                 )
 
 

@@ -143,11 +143,13 @@ class LTA_Stacked(torch.nn.Module):
             num_layers=self.config['n_layers'],
             norm=norm_encoder)
 
-        self.causal_mask = generate_memory_mask_for_K_bars_ahead_prediction(
-            input_steps=self.config['max_n_steps'],
-            output_steps=self.config['max_n_steps'],
-            predict_K_bars_ahead=self.predict_K_bars_ahead,
-            segment_length=1)
+        # self.causal_mask = generate_memory_mask_for_K_bars_ahead_prediction(
+        #     input_steps=self.config['max_n_steps'],
+        #     output_steps=self.config['max_n_steps'],
+        #     predict_K_bars_ahead=self.predict_K_bars_ahead,
+        #     segment_length=1)
+
+        self.causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(self.config['max_n_steps'])
 
         self.HitOutputLayer = SingleFeatureOutputLayer(
             embedding_size=self.n_total_voices,
@@ -177,10 +179,15 @@ class LTA_Stacked(torch.nn.Module):
         # StepEncoder
         n_steps = int(shifted_tgt.shape[1])
 
-        encoded_steps = torch.zeros((shifted_tgt.shape[0], n_steps, self.encoder_d_model), device=shifted_tgt.device)
-        for i in range(n_steps):
-            encoded_steps[:, i, :] = self.StepEncoder(
-                src=shifted_tgt[:, i, :])
+        batch_size, n_steps, encoder_d_model = shifted_tgt.shape
+        shifted_tgt_reshaped = shifted_tgt.view(-1, encoder_d_model)
+        encoded_steps_reshaped = self.StepEncoder(src=shifted_tgt_reshaped)
+        encoded_steps = encoded_steps_reshaped.view(batch_size, n_steps, -1)
+        #
+        # encoded_steps = torch.zeros((shifted_tgt.shape[0], n_steps, self.encoder_d_model), device=shifted_tgt.device)
+        # for i in range(n_steps):
+        #     encoded_steps[:, i, :] = self.StepEncoder(
+        #         src=shifted_tgt[:, i, :])
 
         # TransformerEncoder
         src = self.PositionalEncoding(encoded_steps)
@@ -195,7 +202,47 @@ class LTA_Stacked(torch.nn.Module):
         o_logits = self.OffsetOutputLayer(encodings)
 
         return h_logits, v_logits, o_logits
+    #forward_using_batch_data_teacher_force
 
+    @torch.jit.ignore
+    def forward_src_masked(self, shifted_tgt: torch.Tensor, teacher_forcing_ration: float=0.9):
+        # used for training only
+
+        # StepEncoder
+        n_steps = int(shifted_tgt.shape[1])
+
+        if teacher_forcing_ration < 1.0:
+            indices = torch.rand(self.causal_mask.size(0))
+            indices = indices > teacher_forcing_ration
+            causal_mask = self.causal_mask.clone()
+            causal_mask[:, indices] = True
+        else:
+            causal_mask = self.causal_mask
+
+        batch_size, n_steps, encoder_d_model = shifted_tgt.shape
+        shifted_tgt_reshaped = shifted_tgt.view(-1, encoder_d_model)
+        encoded_steps_reshaped = self.StepEncoder(src=shifted_tgt_reshaped)
+        encoded_steps = encoded_steps_reshaped.view(batch_size, n_steps, -1)
+        #
+        # encoded_steps = torch.zeros((shifted_tgt.shape[0], n_steps, self.encoder_d_model), device=shifted_tgt.device)
+        # for i in range(n_steps):
+        #     encoded_steps[:, i, :] = self.StepEncoder(
+        #         src=shifted_tgt[:, i, :])
+
+        # TransformerEncoder
+        src = self.PositionalEncoding(encoded_steps)
+
+        encodings = self.TransformerEncoder.forward(
+            src=src,
+            is_causal=True,
+            mask=causal_mask[:src.shape[1], :src.shape[1]])
+
+        # decode the output groove
+        h_logits = self.HitOutputLayer(encodings)
+        v_logits = self.VelocityOutputLayer(encodings)
+        o_logits = self.OffsetOutputLayer(encodings)
+
+        return h_logits, v_logits, o_logits
 
     @torch.jit.ignore
     def sample(self, shifted_tgt: torch.Tensor, scale_vel: float=1.0, threshold: float=0.5, use_bernulli: bool=False, temperature: float=1.0):

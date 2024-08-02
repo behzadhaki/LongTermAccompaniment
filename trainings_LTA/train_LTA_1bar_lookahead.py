@@ -331,32 +331,11 @@ if __name__ == "__main__":
 
         enc_src = bass_solo.to(device) if bass_solo.device.type != device else bass_solo
 
-        if config['teacher_forcing_ratio'] >= 0.95:
-            h_logits, v_log, o_log = model_.forward(
-                src=enc_src,
-                shifted_tgt=shifted_drums.to(device) if shifted_drums.device.type != device else shifted_drums)
-            return h_logits, v_log, o_log, drums.to(device)
-        # else:
-        #     shifted_predicted_tgt = torch.zeros((drums.shape[0], drums.shape[1] + 16, drums.shape[2])).to(device)
-
-        #     n_4_bars = shifted_predicted_tgt.shape[1] // (16)
-        #
-        #     for i in range(n_4_bars):
-        #         h_logits, v_log, o_log = model_.forward(
-        #             src=enc_src[:, :16*(i+1), :],
-        #             shifted_tgt=shifted_predicted_tgt[:, :16*(i+1), :]
-        #         )
-        #         if torch.rand(1).item() > config['teacher_forcing_ratio']:
-        #             h = torch.sigmoid(h_logits[:, -16:, :])
-        #             # bernoulli sampling
-        #             v = torch.clamp((torch.tanh(v_log[:, -16:, :]) + 1.0) / 2.0, 0.0, 1.0)
-        #             o = torch.tanh(o_log[:, -16:, :])
-        #             shifted_predicted_tgt[:, i*16:(i+1)*16, :] = torch.cat((h, v, o), dim=-1)
-        #             del h, v, o
-        #         else:
-        #             shifted_predicted_tgt[:, i*16:(i+1)*16, :] = shifted_drums[:, i*16:(i+1)*16, :].to(device)
-
-        # return h_logits, v_log, o_log, drums.to(device)
+        h_logits, v_log, o_log = model_.forward(
+            src=enc_src,
+            shifted_tgt=shifted_drums.to(device) if shifted_drums.device.type != device else shifted_drums,
+            teacher_forcing_ratio=config.teacher_forcing_ratio)
+        return h_logits, v_log, o_log, drums.to(device)
 
 
     for epoch in range(config.epochs):

@@ -258,6 +258,27 @@ if __name__ == "__main__":
         return stacked_target_shifted, stacked_target
 
 
+    def forward_using_batch_data_teacher_force(batch_data, scope_end_step=None, model_=model_on_device, device=config.device):
+        model_.train()
+
+        teacher_forcing_ratio = config.teacher_forcing_ratio
+
+        stacked_target_shifted, stacked_target = batch_data_extractor(
+            data_=batch_data,
+            device=device
+        )
+
+        if scope_end_step is not None:
+            scope_end_step = min(scope_end_step, stacked_target_shifted.shape[1])
+            stacked_target_shifted = stacked_target_shifted[:, :scope_end_step, :]
+            stacked_target = stacked_target[:, :scope_end_step, :]
+
+        h_logits, v_logits, o_logits = model_.forward_src_masked(
+            shifted_tgt=stacked_target_shifted,
+            teacher_forcing_ration=teacher_forcing_ratio)
+
+        return h_logits, v_logits, o_logits, stacked_target.to(device)
+
     def forward_using_batch_data(batch_data, scope_end_step=None, model_=model_on_device, device=config.device):
         model_.train()
 
@@ -287,7 +308,7 @@ if __name__ == "__main__":
 
         train_log_metrics, step_ = train_utils.train_loop(
             train_dataloader=train_dataloader,
-            forward_method=forward_using_batch_data,
+            forward_method=forward_using_batch_data_teacher_force,
             optimizer=optimizer,
             hit_loss_fn=hit_loss_fn,
             velocity_loss_fn=velocity_loss_fn,

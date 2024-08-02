@@ -315,7 +315,7 @@ class DrumDecoder(torch.nn.Module):
                 segment_length=self.performance_encoder_input_steps['steps_per_segment'])
 
         @torch.jit.export
-        def forward(self, tgt: torch.Tensor, memory: torch.Tensor):
+        def forward(self, tgt: torch.Tensor, memory: torch.Tensor, teacher_forcing_ratio: float=1.0):
             out_with_position, hit, hvo_projection = self.InputLayerEncoder(hvo=tgt)
 
             # replace True to -inf, False to 0
@@ -326,11 +326,25 @@ class DrumDecoder(torch.nn.Module):
             if self.memory_mask.device != memory.device:
                 self.memory_mask = self.memory_mask.to(memory.device)
 
+            if teacher_forcing_ratio < 0.98:
+                indices = torch.rand(self.causal_mask.size(0))
+                indices = indices > teacher_forcing_ratio
+                causal_mask = self.causal_mask.clone()
+                causal_mask[:, indices] = True
+
+                indices = torch.rand(self.memory_mask.size(0))
+                indices = indices > teacher_forcing_ratio
+                memory_mask = self.memory_mask.clone()
+                memory_mask[:, indices] = True
+            else:
+                causal_mask = self.causal_mask
+                memory_mask = self.memory_mask
+
             output = self.Decoder(
                 tgt=out_with_position,
                 memory=memory,
-                tgt_mask=self.causal_mask[:tgt.shape[1], :tgt.shape[1]],
-                memory_mask=self.memory_mask[:tgt.shape[1], :memory.shape[1]]
+                tgt_mask=causal_mask[:tgt.shape[1], :tgt.shape[1]],
+                memory_mask=memory_mask[:tgt.shape[1], :memory.shape[1]]
             )
 
             return self.HitOutputLayer(output), self.VelocityOutputLayer(output), self.OffsetOutputLayer(output)
@@ -862,7 +876,7 @@ class LTA(torch.nn.Module):
     def unfreeze_decoder(self):
         self.DrumDecoder.requires_grad_(True)
 
-    def forward(self, src: torch.Tensor, shifted_tgt: torch.Tensor):
+    def forward(self, src: torch.Tensor, shifted_tgt: torch.Tensor, teacher_forcing_ratio: float=1.0):
 
         # StepEncoder
         n_segments = int(src.shape[1] // self.n_steps_per_segment)
@@ -879,7 +893,8 @@ class LTA(torch.nn.Module):
         # decode the output groove
         h_logits, v_logits, o_logits = self.DrumDecoder.forward(
             tgt=shifted_tgt,
-            memory=perf_encodings)
+            memory=perf_encodings,
+            teacher_forcing_ratio=teacher_forcing_ratio)
 
         return h_logits, v_logits, o_logits
 
