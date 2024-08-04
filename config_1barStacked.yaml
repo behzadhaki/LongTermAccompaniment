@@ -1,9 +1,9 @@
 max_n_bars: 32
 input_has_velocity: false
-d_model: 64
-d_ff: 128
-n_layers: 6
-n_heads: 4
+d_model: 128
+d_ff: 256
+n_layers: 8
+n_heads: 8
 n_src1_voices: 1
 n_src2_voices: 9
 dropout: 0.0
@@ -43,8 +43,8 @@ push_all_data_to_cuda: false
 teacher_forcing_ratio: 0.7
 
 predict_K_bars_ahead: 1
-mixed_causality: true
+mixed_causality: false
 
-run_name: "[MixedCausality srcMasked 30prcnt] [bassGuiSynLead] no in vel"
+run_name: "[Larger srcMasked 30prcnt] [bassGuiSynLead] no in vel"
 
 

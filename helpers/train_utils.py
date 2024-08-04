@@ -157,7 +157,7 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
 
         # overlap between the predicted hits and the actual hits
         overlap = (predicted_hits != hit_targets) * 2
-        hit_mask = overlap + 1
+        hit_mask = overlap + 2
 
         per_voice_mask = torch.ones_like(hit_mask)
 
@@ -168,7 +168,7 @@ def calculate_hit_loss(hit_logits, hit_targets, hit_loss_function):
             per_voice_mask[:, :, 0] = 3
             per_voice_mask[:, :, 5:8] = 4
 
-        hit_mask = hit_mask * per_voice_mask
+        hit_mask = hit_mask + per_voice_mask
         
         loss_h = loss_h * hit_mask
         loss_h = loss_h.mean()
