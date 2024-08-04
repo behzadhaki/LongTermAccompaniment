@@ -808,6 +808,12 @@ class StackedLTADatasetV2(Dataset):
                         stacked_target_shifted_[shift_tgt_by_n_steps:] = i1_2_stack_for_shifting[:-shift_tgt_by_n_steps]
                         stacked_target_shifted.append(stacked_target_shifted_)
 
+                        if not start_with_one_bar_of_silent_drums:
+                            # DRUMs on input 2 bars should be zeros
+                            stacked_target_shifted_[:32, 1:10] = 0
+                            stacked_target_shifted_[:32, 11:20] = 0
+                            stacked_target_shifted_[:32, 21:30] = 0
+
             self.instrument1_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst1_hvos])
             self.instrument2_hvos = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in inst2_hvos])
             self.stacked_target = torch.vstack([torch.tensor(x, dtype=torch.float32).unsqueeze(0) for x in stacked_target])

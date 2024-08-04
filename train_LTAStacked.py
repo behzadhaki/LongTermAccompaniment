@@ -291,6 +291,7 @@ if __name__ == "__main__":
             print("##############################################")
             print("Stacked Target Shape: ", stacked_target.shape)
             print("Stacked Target Shifted Shape: ", stacked_target_shifted.shape)
+            print("Total Hits First Two Bars: ", torch.sum(stacked_target[:, :32, 1:10]))
             print("##############################################")
             printed_vel_info_already = True
 
