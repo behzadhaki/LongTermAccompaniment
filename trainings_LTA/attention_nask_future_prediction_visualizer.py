@@ -2,12 +2,12 @@ import torch
 
 from model.LTA import generate_memory_mask_for_K_bars_ahead_prediction
 
-out_steps = 128
-in_steps = 128
+out_steps = 64
+in_steps = 64
 seg_len = 1
-KBarsAhead = 2
+KBarsAhead = 0
 mask = generate_memory_mask_for_K_bars_ahead_prediction(in_steps, out_steps, KBarsAhead, seg_len)
-
+mask[:32, :32] = 0
 # plot heatmap
 from matplotlib import pyplot as plt
 import seaborn as sns
@@ -34,10 +34,10 @@ plt.xticks(ticks=range(0, out_steps, 4), labels=range(0, out_steps, 4))
 # skip every 4 y ticks
 # format 0 as 000
 
-y_tick_texts = ["t="+f"{i:03d}" for i in range(0, in_steps//seg_len, 4)]
+y_tick_texts = [""+f"{i:02d}" for i in range(0, in_steps//seg_len, 4)]
 plt.yticks(ticks=range(0, in_steps//seg_len, 4), labels=y_tick_texts, fontsize=28)
 
-x_tick_texts = ["t="+f"{i:03d}" for i in range(0, out_steps, 4)]
+x_tick_texts = [""+f"{i:02d}" for i in range(0, out_steps, 4)]
 plt.xticks(ticks=range(0, out_steps, 4), labels=x_tick_texts, fontsize=28)
 
 # place texts in the middle of the ticks
@@ -53,9 +53,9 @@ for y in range(0, in_steps, 4):
     plt.axhline(y, color='black', linewidth=4) if (y/seg_len)%4 == 0 else plt.axhline(y, color='black', linewidth=1)
 
 # set x and y labels
-plt.xlabel('Output Step Prediction', fontsize=35)
-plt.ylabel('Input Step Encodings', fontsize=35)
-plt.title(f'Cross Attention Mask ({KBarsAhead} bar look-ahead)', fontsize=40)
+plt.xlabel('Output Step Prediction', fontsize=50)
+plt.ylabel('Input Step Encodings', fontsize=50)
+plt.title(f'Cross Attention Mask ({KBarsAhead} bar look-ahead)', fontsize=50)
 
 # first 16x16 in green (border only)
 ax.add_patch(plt.Rectangle((0, 0), 16, 16, fill=False, edgecolor='green', lw=4))
@@ -67,6 +67,6 @@ plt.gca().invert_yaxis()
 plt.tight_layout()
 
 # save with high dpi
-plt.savefig(f'Cross Attention Mask ({KBarsAhead} bar look-ahead).png', dpi=300)
+plt.savefig(f'Cross Attention Mask ({KBarsAhead} bar look-ahead) MixedCausality.png', dpi=300)
 
 plt.show()

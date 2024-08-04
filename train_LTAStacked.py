@@ -4,6 +4,7 @@ import wandb
 
 import torch
 from model.LTA_Stacked import LTA_Stacked
+from model.LTA_Stacked_MixedCausality import LTA_Stacked_MixedCausality
 from helpers import train_utils #, eval_utils_g2g
 from data.src.dataLoaders import StackedLTADatasetV2
 from torch.utils.data import DataLoader
@@ -39,6 +40,7 @@ parser.add_argument("--input_has_velocity", type=bool, help=" input_has_velocity
 parser.add_argument("--has_offset", type=bool, help=" has_offset", default=True)
 parser.add_argument("--positional_encoding_dropout", type=float, help="Dropout of positional encoding at the input of PerformanceEncoder", default=0.1)
 parser.add_argument("--dropout", type=float, help="Dropout of StepEncoder transformer layers", default=0.1)
+parser.add_argument("--mixed_causality", type=bool, help="Mixed Causality", default=False)
 
 # ----------------------- Training Parameters -----------------------
 parser.add_argument("--scale_h_loss", type=float, help="Scale for hit loss", default=1)
@@ -110,6 +112,7 @@ hparams = {
     'max_n_bars': args.max_n_bars if not loaded_via_config_yaml else yml_['max_n_bars'],
     'max_n_steps': max_n_steps,
     'teacher_forcing_ratio': args.teacher_forcing_ratio if not loaded_via_config_yaml else yml_['teacher_forcing_ratio'],
+    'mixed_causality': args.mixed_causality if not loaded_via_config_yaml else yml_['mixed_causality'],
 
     'd_model': args.d_model if not loaded_via_config_yaml else yml_['d_model'],
     'd_ff': args.d_ff if not loaded_via_config_yaml else yml_['d_ff'],
@@ -171,36 +174,72 @@ if __name__ == "__main__":
     # load dataset as torch.utils.data.Dataset
     print("Loading Training Datasets: ", config['train_datasets'])
 
-    training_datasets = []
-    for dataset in config['train_datasets']:
-        training_datasets.append(StackedLTADatasetV2(
-            input_inst_dataset_bz2_filepath=dataset,
-            output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_train'],
-            shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-            max_input_bars=config['max_n_bars'],
-            hop_n_bars=config['hop_n_bars'],
-            push_all_data_to_cuda=config['push_all_data_to_cuda'],
-            input_has_velocity=config['input_has_velocity'],
-        ))
-    training_dataset = torch.utils.data.ConcatDataset(training_datasets)
+    if not config['mixed_causality']:   # LTA_Stacked
+        training_datasets = []
+        for dataset in config['train_datasets']:
+            training_datasets.append(StackedLTADatasetV2(
+                input_inst_dataset_bz2_filepath=dataset,
+                output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_train'],
+                shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
+                max_input_bars=config['max_n_bars'],
+                hop_n_bars=config['hop_n_bars'],
+                push_all_data_to_cuda=config['push_all_data_to_cuda'],
+                input_has_velocity=config['input_has_velocity'],
+                start_with_one_bar_of_silent_drums=True,
+            ))
+        training_dataset = torch.utils.data.ConcatDataset(training_datasets)
 
-    print(" |\n|\n--> Training Dataset Length: ", len(training_dataset))
+        print(" |\n|\n--> Training Dataset Length: ", len(training_dataset))
 
-    train_dataloader = DataLoader(training_dataset, batch_size=config.batch_size, shuffle=True)
+        train_dataloader = DataLoader(training_dataset, batch_size=config.batch_size, shuffle=True)
 
-    # load dataset as torch.utils.data.Dataset
-    testing_datasets = []
-    for dataset in config['test_datasets']:
-        testing_datasets.append(StackedLTADatasetV2(
-            input_inst_dataset_bz2_filepath=dataset,
-            output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_test'],
-            shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
-            max_input_bars=config['max_n_bars'],
-            hop_n_bars=config['hop_n_bars'],
-            push_all_data_to_cuda=config['push_all_data_to_cuda'],
-            input_has_velocity=config['input_has_velocity'],
-        ))
-    testing_dataset = torch.utils.data.ConcatDataset(testing_datasets)
+        # load dataset as torch.utils.data.Dataset
+        testing_datasets = []
+        for dataset in config['test_datasets']:
+            testing_datasets.append(StackedLTADatasetV2(
+                input_inst_dataset_bz2_filepath=dataset,
+                output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_test'],
+                shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
+                max_input_bars=config['max_n_bars'],
+                hop_n_bars=config['hop_n_bars'],
+                push_all_data_to_cuda=config['push_all_data_to_cuda'],
+                input_has_velocity=config['input_has_velocity'],
+                start_with_one_bar_of_silent_drums=True,
+            ))
+        testing_dataset = torch.utils.data.ConcatDataset(testing_datasets)
+    else:   # LTA_Stacked_MixedCausality
+        training_datasets = []
+        for dataset in config['train_datasets']:
+            training_datasets.append(StackedLTADatasetV2(
+                input_inst_dataset_bz2_filepath=dataset,
+                output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_train'],
+                shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
+                max_input_bars=config['max_n_bars'],
+                hop_n_bars=config['hop_n_bars'],
+                push_all_data_to_cuda=config['push_all_data_to_cuda'],
+                input_has_velocity=config['input_has_velocity'],
+                start_with_one_bar_of_silent_drums=False,
+            ))
+        training_dataset = torch.utils.data.ConcatDataset(training_datasets)
+
+        print(" |\n|\n--> Training Dataset Length: ", len(training_dataset))
+
+        train_dataloader = DataLoader(training_dataset, batch_size=config.batch_size, shuffle=True)
+
+        # load dataset as torch.utils.data.Dataset
+        testing_datasets = []
+        for dataset in config['test_datasets']:
+            testing_datasets.append(StackedLTADatasetV2(
+                input_inst_dataset_bz2_filepath=dataset,
+                output_inst_dataset_bz2_filepath=config['paired_drum_dataset_bz2_filepath_test'],
+                shift_tgt_by_n_steps=config['shift_tgt_by_n_steps'],
+                max_input_bars=config['max_n_bars'],
+                hop_n_bars=config['hop_n_bars'],
+                push_all_data_to_cuda=config['push_all_data_to_cuda'],
+                input_has_velocity=config['input_has_velocity'],
+                start_with_one_bar_of_silent_drums=False,
+            ))
+        testing_dataset = torch.utils.data.ConcatDataset(testing_datasets)
 
     print(" |\n|\n--> Testing Dataset Length: ", len(testing_dataset))
 

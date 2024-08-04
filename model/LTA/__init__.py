@@ -329,6 +329,7 @@ class DrumDecoder(torch.nn.Module):
             if teacher_forcing_ratio < 0.98:
                 indices = torch.rand(self.causal_mask.size(0))
                 indices = indices > teacher_forcing_ratio
+                indices[:4] = False # ensures that the first beat is always teacher forced
                 causal_mask = self.causal_mask.clone()
                 causal_mask[:, indices] = True
 

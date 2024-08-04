@@ -180,7 +180,9 @@ class LTA_Stacked(torch.nn.Module):
         n_steps = int(shifted_tgt.shape[1])
 
         batch_size, n_steps, encoder_d_model = shifted_tgt.shape
-        shifted_tgt_reshaped = shifted_tgt.view(-1, encoder_d_model)
+        #shifted_tgt_reshaped = shifted_tgt.view(-1, encoder_d_model)
+        shifted_tgt_reshaped = shifted_tgt.reshape(-1, encoder_d_model)
+
         encoded_steps_reshaped = self.StepEncoder(src=shifted_tgt_reshaped)
         encoded_steps = encoded_steps_reshaped.view(batch_size, n_steps, -1)
         #
@@ -190,6 +192,9 @@ class LTA_Stacked(torch.nn.Module):
         #         src=shifted_tgt[:, i, :])
 
         # TransformerEncoder
+        if self.causal_mask.device != shifted_tgt.device:
+            self.causal_mask = self.causal_mask.to(shifted_tgt.device)
+
         src = self.PositionalEncoding(encoded_steps)
         encodings = self.TransformerEncoder.forward(
             src=src,
@@ -214,6 +219,7 @@ class LTA_Stacked(torch.nn.Module):
         if teacher_forcing_ration < 1.0:
             indices = torch.rand(self.causal_mask.size(0))
             indices = indices > teacher_forcing_ration
+            indices[:16] = False
             causal_mask = self.causal_mask.clone()
             causal_mask[:, indices] = True
         else:

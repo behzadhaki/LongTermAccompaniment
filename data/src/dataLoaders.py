@@ -679,15 +679,17 @@ class StackedLTADatasetV2(Dataset):
                  max_input_bars=32,
                  hop_n_bars=2,
                  push_all_data_to_cuda=False,
-                 input_has_velocity=True):
+                 input_has_velocity=True,
+                 start_with_one_bar_of_silent_drums=True, ):
 
         self.max_input_bars = max_input_bars
         self.hop_n_bars = hop_n_bars
 
         def get_cached_filepath():
             dir_ = "cached/TorchDatasets"
+            dt_type_ = "for_mixed_causality" if not start_with_one_bar_of_silent_drums else "fully_causal"
             filename = (
-                f"StackedLTADatasetV2_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
+                f"StackedLTADatasetV2_{dt_type_}_{input_inst_dataset_bz2_filepath.split('/')[-1]}_{output_inst_dataset_bz2_filepath.split('/')[-1]}"
                 f"_{max_input_bars}_{hop_n_bars}_{shift_tgt_by_n_steps}.bz2pickle")
             if not os.path.exists(dir_):
                 os.makedirs(dir_)
@@ -793,7 +795,8 @@ class StackedLTADatasetV2(Dataset):
                     i2_seg = i2.hvo[ts_:te_].copy()
 
                     # mute first bar of instrument 2 (drums)
-                    i2_seg[:16] = 0
+                    if start_with_one_bar_of_silent_drums:
+                        i2_seg[:16] = 0
 
                     if i1_seg.shape[0] == max_input_bars * 16 and is_valid(i1_seg, i2_seg):
                         i1_2_stack = stack_two_hvos(i1_seg, i2_seg, True)

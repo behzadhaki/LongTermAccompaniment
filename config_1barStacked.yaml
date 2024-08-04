@@ -14,7 +14,7 @@ scale_v_loss: 1
 scale_o_loss: 1
 
 optimizer: "adam"
-lr: 0.0001369948608989782
+lr: 0.0005369948608989782
 batch_size: 128
 epochs: 1000
 device: "cuda"
@@ -43,6 +43,7 @@ push_all_data_to_cuda: false
 teacher_forcing_ratio: 0.7
 
 predict_K_bars_ahead: 1
+mixed_causality: false
 
 run_name: "[srcMasked 30prcnt] [bassGuiSynLead] no in vel"
 
