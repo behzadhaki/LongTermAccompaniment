@@ -2,7 +2,7 @@ max_n_bars: 32
 input_has_velocity: false
 d_model: 128
 d_ff: 256
-n_layers: 8
+n_layers: 10
 n_heads: 8
 n_src1_voices: 1
 n_src2_voices: 9
@@ -14,7 +14,7 @@ scale_v_loss: 1
 scale_o_loss: 1
 
 optimizer: "adam"
-lr: 0.0002147979443595913
+lr: 0.000072
 batch_size: 128
 epochs: 1000
 device: "cuda"
@@ -45,6 +45,6 @@ teacher_forcing_ratio: 0.7
 predict_K_bars_ahead: 1
 mixed_causality: false
 
-run_name: "[Larger srcMasked 30prcnt] [bassGuiSynLead] no in vel"
+run_name: "[10L8H srcMasked 30prcnt] [bassGuiSynLead] no in vel"
 
 
