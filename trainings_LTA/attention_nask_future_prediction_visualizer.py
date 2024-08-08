@@ -7,7 +7,7 @@ in_steps = 64
 seg_len = 1
 KBarsAhead = 0
 mask = generate_memory_mask_for_K_bars_ahead_prediction(in_steps, out_steps, KBarsAhead, seg_len)
-mask[:32, :32] = 0
+
 # plot heatmap
 from matplotlib import pyplot as plt
 import seaborn as sns
@@ -35,10 +35,10 @@ plt.xticks(ticks=range(0, out_steps, 4), labels=range(0, out_steps, 4))
 # format 0 as 000
 
 y_tick_texts = [""+f"{i:02d}" for i in range(0, in_steps//seg_len, 4)]
-plt.yticks(ticks=range(0, in_steps//seg_len, 4), labels=y_tick_texts, fontsize=28)
+plt.yticks(ticks=range(0, in_steps//seg_len, 4), labels=y_tick_texts, fontsize=38)
 
 x_tick_texts = [""+f"{i:02d}" for i in range(0, out_steps, 4)]
-plt.xticks(ticks=range(0, out_steps, 4), labels=x_tick_texts, fontsize=28)
+plt.xticks(ticks=range(0, out_steps, 4), labels=x_tick_texts, fontsize=38)
 
 # place texts in the middle of the ticks
 plt.xticks(ha='left')
@@ -53,9 +53,9 @@ for y in range(0, in_steps, 4):
     plt.axhline(y, color='black', linewidth=4) if (y/seg_len)%4 == 0 else plt.axhline(y, color='black', linewidth=1)
 
 # set x and y labels
-plt.xlabel('Output Step Prediction', fontsize=50)
-plt.ylabel('Input Step Encodings', fontsize=50)
-plt.title(f'Cross Attention Mask ({KBarsAhead} bar look-ahead)', fontsize=50)
+plt.xlabel('Drum Event ($D_t$)', fontsize=60)
+plt.ylabel('Drum Event ($D_t$)', fontsize=60)
+plt.title(f'Self-Attention Mask', fontsize=60)
 
 # first 16x16 in green (border only)
 ax.add_patch(plt.Rectangle((0, 0), 16, 16, fill=False, edgecolor='green', lw=4))
@@ -67,6 +67,6 @@ plt.gca().invert_yaxis()
 plt.tight_layout()
 
 # save with high dpi
-plt.savefig(f'Cross Attention Mask ({KBarsAhead} bar look-ahead) MixedCausality.png', dpi=300)
+plt.savefig(f'Cross Attention Mask ({KBarsAhead} bar look-back) MixedCausality.png', dpi=300)
 
 plt.show()
